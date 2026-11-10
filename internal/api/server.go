@@ -61,6 +61,30 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.Handle("POST /api/order/pay", s.requireCap(core.CapSell, http.HandlerFunc(s.apiPay)))
 	mux.Handle("POST /api/order/clear", s.requireCap(core.CapSell, http.HandlerFunc(s.apiClear)))
 
+	// Admin / Manager CRUD & Configurations
+	mux.Handle("GET /api/admin/workers", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminListWorkers)))
+	mux.Handle("POST /api/admin/workers", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminCreateWorker)))
+	mux.Handle("PUT /api/admin/workers/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUpdateWorker)))
+	mux.Handle("POST /api/admin/workers/{id}/toggle", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminToggleWorker)))
+	mux.Handle("POST /api/admin/workers/{id}/reset-pin", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminResetWorkerPIN)))
+	mux.Handle("DELETE /api/admin/workers/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminDeleteWorker)))
+
+	mux.Handle("GET /api/admin/menu/items", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminListItems)))
+	mux.Handle("POST /api/admin/menu/items", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminCreateItem)))
+	mux.Handle("PUT /api/admin/menu/items/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUpdateItem)))
+	mux.Handle("POST /api/admin/menu/items/{id}/toggle", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminToggleItem)))
+	mux.Handle("DELETE /api/admin/menu/items/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminDeleteItem)))
+
+	mux.Handle("GET /api/admin/menu/categories", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminListCategories)))
+	mux.Handle("POST /api/admin/menu/categories", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminCreateCategory)))
+	mux.Handle("PUT /api/admin/menu/categories/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUpdateCategory)))
+	mux.Handle("DELETE /api/admin/menu/categories/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminDeleteCategory)))
+
+	mux.Handle("GET /api/admin/settings", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminGetSettings)))
+	mux.Handle("PUT /api/admin/settings", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUpdateSettings)))
+
+	mux.Handle("GET /api/admin/reports/today", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminGetTodayReport)))
+
 	return mux
 }
 
@@ -169,11 +193,12 @@ func (s *Server) pageSeller(w http.ResponseWriter, r *http.Request) {
 		"Categories":  cats,
 		"Items":       items,
 		"Business":    set.BusinessName,
+		"CanAdmin":    core.Allowed(user.Role, core.CapAdminister),
 	})
 }
 
-// pageAdmin is the owner console: the only place the audit trail is
-// visible, plus workers and settings. Owner-only by capability check.
+// pageAdmin is the management console: menu items, categories, workers,
+// settings, sales reports, and audit trail (owner-only).
 func (s *Server) pageAdmin(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
 	set, err := store.GetSettings(r.Context(), s.db)
@@ -186,17 +211,36 @@ func (s *Server) pageAdmin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	audit, err := store.ListAudit(r.Context(), s.db, 100)
+	cats, err := store.ListCategories(r.Context(), s.db)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	items, err := store.ListAllItems(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	report, err := store.GetTodayReport(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var audit []store.AuditEntry
+	if user.Role == "owner" {
+		audit, _ = store.ListAudit(r.Context(), s.db, 100)
+	}
 	s.render(w, "admin.html", map[string]any{
-		"User":     user,
-		"Business": set.BusinessName,
-		"Settings": set,
-		"Workers":  workers,
-		"Audit":    audit,
+		"User":       user,
+		"Business":   set.BusinessName,
+		"Settings":   set,
+		"Workers":    workers,
+		"Categories": cats,
+		"Items":      items,
+		"Report":     report,
+		"Audit":      audit,
+		"IsOwner":    user.Role == "owner",
+		"CanSell":    core.Allowed(user.Role, core.CapSell),
 	})
 }
 
@@ -434,4 +478,300 @@ func (s *Server) latestOrderID(r *http.Request) string {
 		return ""
 	}
 	return o.ID
+}
+
+// ---- Admin & Manager API Handlers ----
+
+func (s *Server) apiAdminListWorkers(w http.ResponseWriter, r *http.Request) {
+	workers, err := store.ListUsers(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, workers)
+}
+
+func (s *Server) apiAdminCreateWorker(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	var req struct {
+		Name string `json:"name"`
+		Role string `json:"role"`
+		PIN  string `json:"pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	wkr, err := store.CreateUser(r.Context(), s.db, req.Name, req.Role, req.PIN)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_created", "user", wkr.ID,
+		map[string]any{"name": wkr.Name, "role": wkr.Role})
+	writeJSON(w, http.StatusCreated, wkr)
+}
+
+func (s *Server) apiAdminUpdateWorker(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		Name string `json:"name"`
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := store.UpdateUser(r.Context(), s.db, id, req.Name, req.Role); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_updated", "user", id,
+		map[string]any{"name": req.Name, "role": req.Role})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminToggleWorker(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		Active bool `json:"active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := store.SetUserActive(r.Context(), s.db, id, req.Active); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	act := "worker_deactivated"
+	if req.Active {
+		act = "worker_activated"
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", act, "user", id, nil)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminResetWorkerPIN(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		NewPIN string `json:"new_pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := store.ResetPIN(r.Context(), s.db, id, req.NewPIN); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_pin_reset", "user", id, nil)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminDeleteWorker(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	if id == user.ID {
+		http.Error(w, "cannot delete your own account", http.StatusBadRequest)
+		return
+	}
+	if err := store.DeleteUser(r.Context(), s.db, id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_deleted", "user", id, nil)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminListItems(w http.ResponseWriter, r *http.Request) {
+	items, err := store.ListAllItems(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) apiAdminCreateItem(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	var req struct {
+		CategoryID string `json:"category_id"`
+		Name       string `json:"name"`
+		UnitType   string `json:"unit_type"`
+		UnitLabel  string `json:"unit_label"`
+		PriceKobo  int64  `json:"price_kobo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	it, err := store.CreateItem(r.Context(), s.db, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_created", "item", it.ID,
+		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo})
+	writeJSON(w, http.StatusCreated, it)
+}
+
+func (s *Server) apiAdminUpdateItem(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		CategoryID string `json:"category_id"`
+		Name       string `json:"name"`
+		UnitType   string `json:"unit_type"`
+		UnitLabel  string `json:"unit_label"`
+		PriceKobo  int64  `json:"price_kobo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	it, err := store.UpdateItem(r.Context(), s.db, id, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_updated", "item", id,
+		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo})
+	writeJSON(w, http.StatusOK, it)
+}
+
+func (s *Server) apiAdminToggleItem(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		Active bool `json:"active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := store.SetItemActive(r.Context(), s.db, id, req.Active); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	act := "item_deactivated"
+	if req.Active {
+		act = "item_activated"
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", act, "item", id, nil)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminDeleteItem(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	if err := store.DeleteItem(r.Context(), s.db, id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_deleted", "item", id, nil)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminListCategories(w http.ResponseWriter, r *http.Request) {
+	cats, err := store.ListCategories(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, cats)
+}
+
+func (s *Server) apiAdminCreateCategory(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	cat, err := store.CreateCategory(r.Context(), s.db, req.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "category_created", "category", cat.ID,
+		map[string]any{"name": cat.Name})
+	writeJSON(w, http.StatusCreated, cat)
+}
+
+func (s *Server) apiAdminUpdateCategory(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := store.UpdateCategory(r.Context(), s.db, id, req.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "category_updated", "category", id,
+		map[string]any{"name": req.Name})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminDeleteCategory(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	if err := store.DeleteCategory(r.Context(), s.db, id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "category_deleted", "category", id, nil)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiAdminGetSettings(w http.ResponseWriter, r *http.Request) {
+	set, err := store.GetSettings(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, set)
+}
+
+func (s *Server) apiAdminUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	var req struct {
+		BusinessName     string `json:"business_name"`
+		ReceiptFooter    string `json:"receipt_footer"`
+		VATEnabled       bool   `json:"vat_enabled"`
+		VATRateBP        int64  `json:"vat_rate_bp"`
+		VATMode          string `json:"vat_mode"`
+		PackagingFeeKobo int64  `json:"packaging_fee_kobo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	set, err := store.UpdateSettings(r.Context(), s.db, req.BusinessName, req.ReceiptFooter, req.VATEnabled, req.VATRateBP, req.VATMode, req.PackagingFeeKobo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "settings_updated", "settings", "1",
+		map[string]any{"business_name": set.BusinessName, "vat_enabled": set.VATEnabled})
+	writeJSON(w, http.StatusOK, set)
+}
+
+func (s *Server) apiAdminGetTodayReport(w http.ResponseWriter, r *http.Request) {
+	rep, err := store.GetTodayReport(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, rep)
 }

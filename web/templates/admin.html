@@ -3,22 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Owner console · {{.Business}}</title>
+<title>Management Console · {{.Business}}</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body class="seller-body">
+  <!-- Decorative background wave shapes -->
+  <div class="bg-wave bg-wave-top" aria-hidden="true">
+    <svg viewBox="0 0 500 240" fill="none" preserveAspectRatio="none">
+      <path d="M0,0 C120,60 260,115 390,110 C440,108 475,95 500,80 L500,0 Z" fill="#F8E8DD" />
+    </svg>
+  </div>
+
   <header class="topbar">
     <div class="brand-row">
       <img class="brand-logo" src="/static/images/logo.png" alt="{{.Business}}" onerror="this.onerror=null; this.src='/static/images/cloche.png';">
       <div class="brand-info">
         <strong class="brand-name">{{.Business}}</strong>
-        <span class="brand-sub muted small">Owner console</span>
+        <span class="brand-sub muted small">{{if .IsOwner}}Owner Console{{else}}Manager Console{{end}}</span>
       </div>
       <div class="topbar-divider"></div>
     </div>
     <div class="top-actions">
+      {{if .CanSell}}
+      <a href="/" class="btn-logout" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;" title="Go to Till">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="9" cy="21" r="1"></circle>
+          <circle cx="20" cy="21" r="1"></circle>
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+        </svg>
+        <span>Open Till</span>
+      </a>
+      {{end}}
       <div class="user-chip">
-        <span class="user-chip-text">{{.User.Name}} · owner</span>
+        <span class="user-chip-text">{{.User.Name}} · {{.User.Role}}</span>
       </div>
       <button id="logout" class="btn-logout">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -31,74 +48,783 @@
     </div>
   </header>
 
-  <main class="admin-layout">
-    <section class="admin-card wide">
-      <h2>Audit trail</h2>
-      <p class="muted small">Every important action, with who and when. Visible to the owner only. Entries can never be edited or erased.</p>
-      <table class="table">
-        <thead><tr><th>When</th><th>Who</th><th>Terminal</th><th>Action</th><th>Details</th></tr></thead>
-        <tbody>
-          {{if .Audit}}
-          {{range .Audit}}
-          <tr>
-            <td class="utc" data-utc="{{.At}}">{{.At}}</td>
-            <td>{{if .UserName}}{{.UserName}}{{else}}<span class="muted">—</span>{{end}}</td>
-            <td>{{.TerminalID}}</td>
-            <td><span class="action-pill">{{.Action}}</span></td>
-            <td><code class="small">{{.Details}}</code></td>
-          </tr>
-          {{end}}
-          {{else}}
-          <tr><td colspan="5" class="muted">No activity recorded yet.</td></tr>
-          {{end}}
-        </tbody>
-      </table>
+  <div class="admin-container">
+    <!-- Navigation Tabs -->
+    <nav class="admin-nav">
+      <button class="admin-tab-btn active" data-tab="tab-overview">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+        <span>Overview &amp; Sales</span>
+      </button>
+      <button class="admin-tab-btn" data-tab="tab-menu">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
+        <span>Menu Items</span>
+      </button>
+      <button class="admin-tab-btn" data-tab="tab-categories">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+        <span>Categories</span>
+      </button>
+      <button class="admin-tab-btn" data-tab="tab-workers">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <span>Staff &amp; Workers</span>
+      </button>
+      <button class="admin-tab-btn" data-tab="tab-settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span>Settings</span>
+      </button>
+      {{if .IsOwner}}
+      <button class="admin-tab-btn" data-tab="tab-audit">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        <span>Audit Trail</span>
+      </button>
+      {{end}}
+    </nav>
+
+    <!-- TAB 1: OVERVIEW & SALES -->
+    <section id="tab-overview" class="admin-section active">
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-title">Today's Revenue</span>
+          <span class="kpi-value naira" data-kobo="{{.Report.TotalSales}}"></span>
+          <span class="kpi-sub">Total cash collected today</span>
+        </div>
+        <div class="kpi-card kpi-leaf">
+          <span class="kpi-title">Paid Orders</span>
+          <span class="kpi-value">{{.Report.PaidCount}}</span>
+          <span class="kpi-sub">Completed transactions</span>
+        </div>
+        <div class="kpi-card kpi-gold">
+          <span class="kpi-title">Subtotal</span>
+          <span class="kpi-value naira" data-kobo="{{.Report.Subtotal}}"></span>
+          <span class="kpi-sub">VAT: <span class="naira" data-kobo="{{.Report.TotalVAT}}"></span></span>
+        </div>
+      </div>
+
+      <div class="admin-layout">
+        <div class="admin-card">
+          <h2>Sales by Cashier Today</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Cashier</th><th>Orders Count</th><th>Total Sales</th></tr></thead>
+              <tbody>
+                {{if .Report.ByCashier}}
+                {{range .Report.ByCashier}}
+                <tr>
+                  <td><strong>{{.UserName}}</strong></td>
+                  <td>{{.OrderCount}} order{{if ne .OrderCount 1}}s{{end}}</td>
+                  <td><strong class="naira" data-kobo="{{.TotalKobo}}"></strong></td>
+                </tr>
+                {{end}}
+                {{else}}
+                <tr><td colspan="3" class="muted">No sales recorded yet today.</td></tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h2>Top Dishes Today</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Item</th><th>Qty</th><th>Sales</th></tr></thead>
+              <tbody>
+                {{if .Report.TopItems}}
+                {{range .Report.TopItems}}
+                <tr>
+                  <td>{{.ItemName}}</td>
+                  <td><strong>{{.Quantity}}</strong></td>
+                  <td><span class="naira" data-kobo="{{.TotalKobo}}"></span></td>
+                </tr>
+                {{end}}
+                {{else}}
+                <tr><td colspan="3" class="muted">No items sold yet today.</td></tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="admin-card wide">
+          <h2>Recent Orders</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Order #</th><th>When</th><th>Type</th><th>Table</th><th>Cashier</th><th>Amount</th><th>Status</th></tr></thead>
+              <tbody>
+                {{if .Report.RecentOrders}}
+                {{range .Report.RecentOrders}}
+                <tr>
+                  <td><strong>{{.OrderNo}}</strong></td>
+                  <td class="utc" data-utc="{{.CreatedAt}}">{{.CreatedAt}}</td>
+                  <td>{{.Type}}</td>
+                  <td>{{if .TableNo}}{{.TableNo}}{{else}}—{{end}}</td>
+                  <td>{{.UserName}}</td>
+                  <td><strong class="naira" data-kobo="{{.TotalKobo}}"></strong></td>
+                  <td><span class="status-badge {{if eq .Status "paid"}}status-active{{else}}status-inactive{{end}}">{{.Status}}</span></td>
+                </tr>
+                {{end}}
+                {{else}}
+                <tr><td colspan="7" class="muted">No orders yet.</td></tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section class="admin-card">
-      <h2>Workers</h2>
-      <table class="table">
-        <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
-        <tbody>
-          {{range .Workers}}
-          <tr>
-            <td>{{.Name}}</td>
-            <td><span class="action-pill role-{{.Role}}">{{.Role}}</span></td>
-            <td>{{if .Active}}<span class="muted">active</span>{{else}}<span class="muted">deactivated</span>{{end}}</td>
-          </tr>
-          {{end}}
-        </tbody>
-      </table>
-      <p class="muted small">Worker creation, PIN resets and deactivation arrive with the stock &amp; control phase.</p>
+    <!-- TAB 2: MENU ITEMS -->
+    <section id="tab-menu" class="admin-section">
+      <div class="admin-card">
+        <div class="admin-card-head">
+          <div>
+            <h2>Menu Dishes &amp; Drinks</h2>
+            <p class="muted small" style="margin:4px 0 0;">Manage items, set prices, and control availability on the till.</p>
+          </div>
+          <button id="btn-add-item" class="btn btn-primary" style="height:42px;padding:8px 18px;font-size:0.9rem;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Add New Dish</span>
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table" id="items-table">
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Unit</th>
+                <th>Price</th>
+                <th>Status</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Items}}
+              <tr data-id="{{.ID}}">
+                <td style="width:50px;">
+                  <img src="/static/images/{{.ID}}.png" alt="" onerror="this.onerror=null; this.src='/static/images/cloche.png';" style="width:40px;height:40px;object-fit:cover;border-radius:8px;background:#fdfdfd;border:1px solid var(--line);">
+                </td>
+                <td><strong class="item-cell-name">{{.Name}}</strong></td>
+                <td><span class="action-pill">{{.CategoryName}}</span></td>
+                <td>per {{.UnitLabel}} ({{.UnitType}})</td>
+                <td><strong class="naira" data-kobo="{{.PricePerUnitKobo}}"></strong></td>
+                <td>
+                  <span class="status-badge {{if .Active}}status-active{{else}}status-inactive{{end}}">
+                    {{if .Active}}Available{{else}}Inactive{{end}}
+                  </span>
+                </td>
+                <td style="text-align:right;white-space:nowrap;">
+                  <button class="btn-sm btn-edit-item"
+                          data-id="{{.ID}}"
+                          data-name="{{.Name}}"
+                          data-category="{{.CategoryID}}"
+                          data-unittype="{{.UnitType}}"
+                          data-unitlabel="{{.UnitLabel}}"
+                          data-price="{{.PricePerUnitKobo}}">Edit</button>
+                  <button class="btn-sm btn-toggle-item" data-id="{{.ID}}" data-active="{{if .Active}}true{{else}}false{{end}}">
+                    {{if .Active}}Disable{{else}}Enable{{end}}
+                  </button>
+                  <button class="btn-sm btn-danger btn-delete-item" data-id="{{.ID}}" data-name="{{.Name}}">Delete</button>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
-    <section class="admin-card">
-      <h2>Settings</h2>
-      <table class="table">
-        <tbody>
-          <tr><td>Business name</td><td>{{.Settings.BusinessName}}</td></tr>
-          <tr><td>VAT</td><td>{{if .Settings.VATEnabled}}{{.Settings.VATMode}} at {{.Settings.VATRateBP}} bp{{else}}off{{end}}</td></tr>
-          <tr><td>Packaging fee</td><td data-kobo="{{.Settings.PackagingFeeKobo}}" class="naira"></td></tr>
-        </tbody>
-      </table>
-      <p class="muted small">VAT editing, receipt text and backups arrive with later phases.</p>
+    <!-- TAB 3: CATEGORIES -->
+    <section id="tab-categories" class="admin-section">
+      <div class="admin-card" style="max-width:800px;margin:0 auto;">
+        <div class="admin-card-head">
+          <div>
+            <h2>Categories</h2>
+            <p class="muted small" style="margin:4px 0 0;">Categories organize items into tabs on the cashier till &amp; customer display.</p>
+          </div>
+          <button id="btn-add-category" class="btn btn-primary" style="height:42px;padding:8px 18px;font-size:0.9rem;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Add Category</span>
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Category ID</th>
+                <th>Name</th>
+                <th>Sort Order</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Categories}}
+              <tr data-cat-id="{{.ID}}">
+                <td><code>{{.ID}}</code></td>
+                <td><strong>{{.Name}}</strong></td>
+                <td>{{.SortOrder}}</td>
+                <td style="text-align:right;">
+                  <button class="btn-sm btn-edit-category" data-id="{{.ID}}" data-name="{{.Name}}">Rename</button>
+                  <button class="btn-sm btn-danger btn-delete-category" data-id="{{.ID}}" data-name="{{.Name}}">Delete</button>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
-  </main>
+
+    <!-- TAB 4: WORKERS & STAFF -->
+    <section id="tab-workers" class="admin-section">
+      <div class="admin-card">
+        <div class="admin-card-head">
+          <div>
+            <h2>Staff &amp; Cashiers</h2>
+            <p class="muted small" style="margin:4px 0 0;">Create accounts, assign roles (Cashier, Manager, Owner), reset PINs, or deactivate staff.</p>
+          </div>
+          <button id="btn-add-worker" class="btn btn-primary" style="height:42px;padding:8px 18px;font-size:0.9rem;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Add Staff Member</span>
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Workers}}
+              <tr data-worker-id="{{.ID}}">
+                <td><strong>{{.Name}}</strong></td>
+                <td><span class="action-pill role-{{.Role}}">{{.Role}}</span></td>
+                <td>
+                  <span class="status-badge {{if .Active}}status-active{{else}}status-inactive{{end}}">
+                    {{if .Active}}Active{{else}}Deactivated{{end}}
+                  </span>
+                </td>
+                <td style="text-align:right;white-space:nowrap;">
+                  <button class="btn-sm btn-reset-pin" data-id="{{.ID}}" data-name="{{.Name}}">Reset PIN</button>
+                  <button class="btn-sm btn-toggle-worker" data-id="{{.ID}}" data-active="{{if .Active}}true{{else}}false{{end}}">
+                    {{if .Active}}Deactivate{{else}}Activate{{end}}
+                  </button>
+                  <button class="btn-sm btn-danger btn-delete-worker" data-id="{{.ID}}" data-name="{{.Name}}">Delete</button>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: STORE SETTINGS -->
+    <section id="tab-settings" class="admin-section">
+      <div class="admin-card" style="max-width:760px;margin:0 auto;">
+        <h2>Store &amp; POS Settings</h2>
+        <p class="muted small" style="margin:-4px 0 16px;">Configure business details, receipt print format, and tax rates.</p>
+
+        <form id="settings-form">
+          <div class="form-group">
+            <label for="set-biz-name">Business Name</label>
+            <input type="text" id="set-biz-name" class="form-control" value="{{.Settings.BusinessName}}" required>
+            <span class="muted small">Displayed on customer display, receipts, and till screens.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="set-receipt-footer">Receipt Footer / Tagline</label>
+            <input type="text" id="set-receipt-footer" class="form-control" value="{{.Settings.ReceiptFooter}}">
+            <span class="muted small">Printed at the bottom of customer thermal receipts.</span>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="set-vat-enabled">VAT (Value Added Tax)</label>
+              <div class="form-checkbox-row">
+                <input type="checkbox" id="set-vat-enabled" {{if .Settings.VATEnabled}}checked{{end}}>
+                <label for="set-vat-enabled" style="cursor:pointer;font-weight:normal;">Enable VAT Calculation</label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="set-vat-rate">VAT Rate (Basis Points)</label>
+              <input type="number" id="set-vat-rate" class="form-control" value="{{.Settings.VATRateBP}}" min="0" max="10000">
+              <span class="muted small">e.g. 750 = 7.5%, 1000 = 10%</span>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="set-vat-mode">VAT Mode</label>
+              <select id="set-vat-mode" class="form-control">
+                <option value="inclusive" {{if eq .Settings.VATMode "inclusive"}}selected{{end}}>Inclusive (Already in price)</option>
+                <option value="added_on_top" {{if eq .Settings.VATMode "added_on_top"}}selected{{end}}>Added on top of total</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="set-packaging-fee">Packaging Fee (₦)</label>
+              <input type="number" id="set-packaging-fee" class="form-control" value="0" min="0" step="10">
+              <span class="muted small" id="packaging-fee-current" data-kobo="{{.Settings.PackagingFeeKobo}}"></span>
+            </div>
+          </div>
+
+          <div style="margin-top:20px;display:flex;gap:12px;align-items:center;">
+            <button type="submit" class="btn btn-primary" style="height:48px;padding:0 28px;">Save Settings</button>
+            <span id="settings-status" class="muted small" style="font-weight:600;"></span>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- TAB 6: AUDIT TRAIL (Owner Only) -->
+    {{if .IsOwner}}
+    <section id="tab-audit" class="admin-section">
+      <div class="admin-card">
+        <div class="admin-card-head">
+          <div>
+            <h2>Audit Trail</h2>
+            <p class="muted small" style="margin:4px 0 0;">Immutable ledger of every critical action, worker, and terminal event. Visible to Owner only.</p>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>When</th><th>Who</th><th>Terminal</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody>
+              {{if .Audit}}
+              {{range .Audit}}
+              <tr>
+                <td class="utc" data-utc="{{.At}}">{{.At}}</td>
+                <td>{{if .UserName}}<strong>{{.UserName}}</strong>{{else}}<span class="muted">—</span>{{end}}</td>
+                <td>{{.TerminalID}}</td>
+                <td><span class="action-pill">{{.Action}}</span></td>
+                <td><code class="small">{{.Details}}</code></td>
+              </tr>
+              {{end}}
+              {{else}}
+              <tr><td colspan="5" class="muted">No activity recorded yet.</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    {{end}}
+  </div>
+
+  <!-- MODAL: ADD / EDIT MENU ITEM -->
+  <div id="modal-item" class="modal-overlay" hidden>
+    <div class="modal-card" style="text-align:left;">
+      <h2 id="modal-item-title" style="margin:0 0 16px;font-size:1.35rem;">Add Menu Dish</h2>
+      <form id="item-form">
+        <input type="hidden" id="item-id">
+        <div class="form-group">
+          <label for="item-name">Dish / Drink Name</label>
+          <input type="text" id="item-name" class="form-control" placeholder="e.g. Asun Rice" required>
+        </div>
+        <div class="form-group">
+          <label for="item-category">Category</label>
+          <select id="item-category" class="form-control" required>
+            {{range .Categories}}
+            <option value="{{.ID}}">{{.Name}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="item-unittype">Unit Type</label>
+            <select id="item-unittype" class="form-control">
+              <option value="spoon">spoon (portion)</option>
+              <option value="count">count (piece/bottle)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="item-unitlabel">Unit Label</label>
+            <input type="text" id="item-unitlabel" class="form-control" placeholder="spoon, piece, bottle" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="item-price">Price (in Naira ₦)</label>
+          <input type="number" id="item-price" class="form-control" placeholder="e.g. 500" min="0" step="50" required>
+        </div>
+        <div class="modal-actions" style="margin-top:20px;">
+          <button type="submit" class="btn btn-primary btn-block">Save Dish</button>
+          <button type="button" class="btn btn-ghost btn-block btn-close-modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT CATEGORY -->
+  <div id="modal-category" class="modal-overlay" hidden>
+    <div class="modal-card" style="text-align:left;max-width:380px;">
+      <h2 id="modal-category-title" style="margin:0 0 16px;font-size:1.35rem;">Add Category</h2>
+      <form id="category-form">
+        <input type="hidden" id="category-id">
+        <div class="form-group">
+          <label for="category-name">Category Name</label>
+          <input type="text" id="category-name" class="form-control" placeholder="e.g. Soups, Grills" required>
+        </div>
+        <div class="modal-actions" style="margin-top:20px;">
+          <button type="submit" class="btn btn-primary btn-block">Save Category</button>
+          <button type="button" class="btn btn-ghost btn-block btn-close-modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD WORKER -->
+  <div id="modal-worker" class="modal-overlay" hidden>
+    <div class="modal-card" style="text-align:left;max-width:400px;">
+      <h2 style="margin:0 0 16px;font-size:1.35rem;">Add Staff Member</h2>
+      <form id="worker-form">
+        <div class="form-group">
+          <label for="worker-name">Staff Full Name</label>
+          <input type="text" id="worker-name" class="form-control" placeholder="e.g. Chioma Eze" required>
+        </div>
+        <div class="form-group">
+          <label for="worker-role">System Role</label>
+          <select id="worker-role" class="form-control" required>
+            <option value="cashier">Cashier (Till sales only)</option>
+            <option value="manager">Manager (Till + Adjustments + Console)</option>
+            <option value="owner">Owner (Full Admin + Audit Trail)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="worker-pin">Login PIN (4–8 digits)</label>
+          <input type="password" id="worker-pin" class="form-control" pattern="[0-9]{4,8}" placeholder="4 to 8 digits" required>
+          <span class="muted small">Staff will use this PIN to log into the Till.</span>
+        </div>
+        <div class="modal-actions" style="margin-top:20px;">
+          <button type="submit" class="btn btn-primary btn-block">Create Staff</button>
+          <button type="button" class="btn btn-ghost btn-block btn-close-modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: RESET PIN -->
+  <div id="modal-pin" class="modal-overlay" hidden>
+    <div class="modal-card" style="text-align:left;max-width:380px;">
+      <h2 style="margin:0 0 10px;font-size:1.35rem;">Reset PIN</h2>
+      <p class="muted small" style="margin:0 0 16px;" id="pin-worker-desc">Resetting PIN for worker.</p>
+      <form id="pin-form">
+        <input type="hidden" id="pin-worker-id">
+        <div class="form-group">
+          <label for="pin-new">New PIN (4–8 digits)</label>
+          <input type="password" id="pin-new" class="form-control" pattern="[0-9]{4,8}" placeholder="Enter new PIN" required>
+        </div>
+        <div class="modal-actions" style="margin-top:20px;">
+          <button type="submit" class="btn btn-primary btn-block">Update PIN</button>
+          <button type="button" class="btn btn-ghost btn-block btn-close-modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script>
+    const naira = (kobo) =>
+      '\u20A6' + (Number(kobo) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    document.querySelectorAll('.naira').forEach((el) => {
+      el.textContent = naira(el.dataset.kobo || 0);
+    });
+
+    const pkgFeeEl = document.getElementById('packaging-fee-current');
+    if (pkgFeeEl) {
+      const k = Number(pkgFeeEl.dataset.kobo || 0);
+      document.getElementById('set-packaging-fee').value = k / 100;
+    }
+
+    // Format UTC timestamps
+    document.querySelectorAll('.utc').forEach((el) => {
+      const raw = el.dataset.utc;
+      if (!raw) return;
+      const d = new Date(raw.replace(' ', 'T') + 'Z');
+      if (!isNaN(d)) el.textContent = d.toLocaleString();
+    });
+
+    // Logout
     document.getElementById('logout').addEventListener('click', async () => {
       await fetch('/api/logout', { method: 'POST' });
       window.location.href = '/login';
     });
-    const naira = (kobo) =>
-      '\u20A6' + (kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    document.querySelectorAll('.naira').forEach((el) => {
-      el.textContent = naira(Number(el.dataset.kobo));
+
+    // Navigation Tabs
+    const tabBtns = document.querySelectorAll('.admin-tab-btn');
+    const sections = document.querySelectorAll('.admin-section');
+    tabBtns.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tabBtns.forEach((b) => b.classList.remove('active'));
+        sections.forEach((s) => s.classList.remove('active'));
+        btn.classList.add('active');
+        const target = document.getElementById(btn.dataset.tab);
+        if (target) target.classList.add('active');
+      });
     });
-    // sqlite stores UTC; show it in the owner's local time
-    document.querySelectorAll('.utc').forEach((el) => {
-      const d = new Date(el.dataset.utc.replace(' ', 'T') + 'Z');
-      if (!isNaN(d)) el.textContent = d.toLocaleString();
+
+    // Close all modals helper
+    function closeModals() {
+      document.querySelectorAll('.modal-overlay').forEach((m) => m.hidden = true);
+    }
+    document.querySelectorAll('.btn-close-modal').forEach((b) => b.addEventListener('click', closeModals));
+    document.querySelectorAll('.modal-overlay').forEach((m) => {
+      m.addEventListener('click', (e) => {
+        if (e.target === m) closeModals();
+      });
+    });
+
+    // ---- MENU DISHES CRUD ----
+    const modalItem = document.getElementById('modal-item');
+    document.getElementById('btn-add-item').addEventListener('click', () => {
+      document.getElementById('modal-item-title').textContent = 'Add Menu Dish';
+      document.getElementById('item-id').value = '';
+      document.getElementById('item-name').value = '';
+      document.getElementById('item-unitlabel').value = 'portion';
+      document.getElementById('item-unittype').value = 'spoon';
+      document.getElementById('item-price').value = '';
+      modalItem.hidden = false;
+    });
+
+    document.querySelectorAll('.btn-edit-item').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const d = btn.dataset;
+        document.getElementById('modal-item-title').textContent = 'Edit Dish';
+        document.getElementById('item-id').value = d.id;
+        document.getElementById('item-name').value = d.name;
+        document.getElementById('item-category').value = d.category;
+        document.getElementById('item-unittype').value = d.unittype;
+        document.getElementById('item-unitlabel').value = d.unitlabel;
+        document.getElementById('item-price').value = Number(d.price) / 100;
+        modalItem.hidden = false;
+      });
+    });
+
+    document.getElementById('item-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('item-id').value;
+      const body = {
+        name: document.getElementById('item-name').value.trim(),
+        category_id: document.getElementById('item-category').value,
+        unit_type: document.getElementById('item-unittype').value,
+        unit_label: document.getElementById('item-unitlabel').value.trim(),
+        price_kobo: Math.round(Number(document.getElementById('item-price').value) * 100),
+      };
+      const url = id ? `/api/admin/menu/items/${id}` : '/api/admin/menu/items';
+      const method = id ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const err = await res.text();
+        alert('Failed to save item: ' + err);
+      }
+    });
+
+    document.querySelectorAll('.btn-toggle-item').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const currentActive = btn.dataset.active === 'true';
+        const res = await fetch(`/api/admin/menu/items/${id}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active: !currentActive }),
+        });
+        if (res.ok) window.location.reload();
+      });
+    });
+
+    document.querySelectorAll('.btn-delete-item').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Are you sure you want to delete "${btn.dataset.name}"?`)) return;
+        const res = await fetch(`/api/admin/menu/items/${btn.dataset.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const err = await res.text();
+          alert('Could not delete: ' + err);
+        }
+      });
+    });
+
+    // Auto-update unit label helper
+    document.getElementById('item-unittype').addEventListener('change', (e) => {
+      const lbl = document.getElementById('item-unitlabel');
+      if (e.target.value === 'spoon') lbl.value = 'portion';
+      else if (lbl.value === 'portion' || lbl.value === 'spoon') lbl.value = 'piece';
+    });
+
+    // ---- CATEGORIES CRUD ----
+    const modalCategory = document.getElementById('modal-category');
+    document.getElementById('btn-add-category').addEventListener('click', () => {
+      document.getElementById('modal-category-title').textContent = 'Add Category';
+      document.getElementById('category-id').value = '';
+      document.getElementById('category-name').value = '';
+      modalCategory.hidden = false;
+    });
+
+    document.querySelectorAll('.btn-edit-category').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.getElementById('modal-category-title').textContent = 'Rename Category';
+        document.getElementById('category-id').value = btn.dataset.id;
+        document.getElementById('category-name').value = btn.dataset.name;
+        modalCategory.hidden = false;
+      });
+    });
+
+    document.getElementById('category-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('category-id').value;
+      const name = document.getElementById('category-name').value.trim();
+      const url = id ? `/api/admin/menu/categories/${id}` : '/api/admin/menu/categories';
+      const method = id ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const err = await res.text();
+        alert('Failed: ' + err);
+      }
+    });
+
+    document.querySelectorAll('.btn-delete-category').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Delete category "${btn.dataset.name}"?`)) return;
+        const res = await fetch(`/api/admin/menu/categories/${btn.dataset.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const err = await res.text();
+          alert('Could not delete: ' + err);
+        }
+      });
+    });
+
+    // ---- WORKERS CRUD ----
+    const modalWorker = document.getElementById('modal-worker');
+    document.getElementById('btn-add-worker').addEventListener('click', () => {
+      document.getElementById('worker-name').value = '';
+      document.getElementById('worker-pin').value = '';
+      modalWorker.hidden = false;
+    });
+
+    document.getElementById('worker-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {
+        name: document.getElementById('worker-name').value.trim(),
+        role: document.getElementById('worker-role').value,
+        pin: document.getElementById('worker-pin').value.trim(),
+      };
+      const res = await fetch('/api/admin/workers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const err = await res.text();
+        alert('Failed to create staff member: ' + err);
+      }
+    });
+
+    document.querySelectorAll('.btn-toggle-worker').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const currentActive = btn.dataset.active === 'true';
+        const res = await fetch(`/api/admin/workers/${id}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active: !currentActive }),
+        });
+        if (res.ok) window.location.reload();
+      });
+    });
+
+    document.querySelectorAll('.btn-delete-worker').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Are you sure you want to delete "${btn.dataset.name}"?`)) return;
+        const res = await fetch(`/api/admin/workers/${btn.dataset.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const err = await res.text();
+          alert('Could not delete: ' + err);
+        }
+      });
+    });
+
+    // Reset PIN
+    const modalPin = document.getElementById('modal-pin');
+    document.querySelectorAll('.btn-reset-pin').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.getElementById('pin-worker-id').value = btn.dataset.id;
+        document.getElementById('pin-worker-desc').textContent = `Setting new PIN for ${btn.dataset.name}.`;
+        document.getElementById('pin-new').value = '';
+        modalPin.hidden = false;
+      });
+    });
+
+    document.getElementById('pin-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('pin-worker-id').value;
+      const newPin = document.getElementById('pin-new').value.trim();
+      const res = await fetch(`/api/admin/workers/${id}/reset-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_pin: newPin }),
+      });
+      if (res.ok) {
+        alert('PIN updated successfully!');
+        closeModals();
+      } else {
+        const err = await res.text();
+        alert('Failed to reset PIN: ' + err);
+      }
+    });
+
+    // ---- SETTINGS SAVE ----
+    document.getElementById('settings-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById('settings-status');
+      statusEl.textContent = 'Saving...';
+      const body = {
+        business_name: document.getElementById('set-biz-name').value.trim(),
+        receipt_footer: document.getElementById('set-receipt-footer').value.trim(),
+        vat_enabled: document.getElementById('set-vat-enabled').checked,
+        vat_rate_bp: Number(document.getElementById('set-vat-rate').value) || 0,
+        vat_mode: document.getElementById('set-vat-mode').value,
+        packaging_fee_kobo: Math.round(Number(document.getElementById('set-packaging-fee').value) * 100),
+      };
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        statusEl.textContent = '✓ Settings saved!';
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      } else {
+        const err = await res.text();
+        statusEl.textContent = '✗ Error: ' + err;
+      }
     });
   </script>
 </body>
