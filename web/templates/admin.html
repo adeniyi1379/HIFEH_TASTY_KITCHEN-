@@ -16,7 +16,7 @@
 
   <header class="topbar">
     <div class="brand-row">
-      <img class="brand-logo" src="/static/images/logo.png" alt="{{.Business}}" onerror="this.onerror=null; this.src='/static/images/cloche.png';">
+      <img class="brand-logo" src="/static/images/logo.png" alt="{{.Business}}" onerror="this.onerror=null; this.src='/static/images/default_logo.svg';">
       <div class="brand-info">
         <strong class="brand-name">{{.Business}}</strong>
         <span class="brand-sub muted small">{{if .IsOwner}}Owner Console{{else}}Manager Console{{end}}</span>
@@ -203,7 +203,7 @@
               {{range .Items}}
               <tr data-id="{{.ID}}">
                 <td style="width:50px;">
-                  <img src="/static/images/{{.ID}}.png" alt="" onerror="this.onerror=null; this.src='/static/images/cloche.png';" style="width:40px;height:40px;object-fit:cover;border-radius:8px;background:#fdfdfd;border:1px solid var(--line);">
+                  <img src="/static/images/{{.ID}}.png" alt="" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';" style="width:40px;height:40px;object-fit:cover;border-radius:8px;background:#fdfdfd;border:1px solid var(--line);">
                 </td>
                 <td><strong class="item-cell-name">{{.Name}}</strong></td>
                 <td><span class="action-pill">{{.CategoryName}}</span></td>
@@ -328,6 +328,30 @@
 
     <!-- TAB 5: STORE SETTINGS -->
     <section id="tab-settings" class="admin-section">
+      <!-- Store Logo Upload Card -->
+      <div class="admin-card" style="max-width:760px;margin:0 auto 20px;">
+        <div class="admin-card-head" style="margin-bottom:0;">
+          <div>
+            <h2>Store Logo &amp; Branding</h2>
+            <p class="muted small" style="margin:4px 0 0;">Upload your custom restaurant logo. Uploaded images are automatically resized and compressed for fast POS loading.</p>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding-top:8px;">
+          <div style="position:relative;width:96px;height:96px;border-radius:50%;overflow:hidden;border:2.5px solid var(--line);background:#fff;display:grid;place-items:center;flex-shrink:0;box-shadow:var(--shadow-card);">
+            <img id="logo-preview-img" src="/static/images/logo.png" alt="Store Logo" onerror="this.onerror=null; this.src='/static/images/default_logo.svg';" style="width:100%;height:100%;object-fit:cover;">
+          </div>
+          <div style="flex:1;min-width:240px;">
+            <label class="btn btn-sm btn-primary" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:8px 20px;height:42px;font-size:0.92rem;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <span>Choose &amp; Upload Logo</span>
+              <input type="file" id="logo-file-input" accept="image/*" style="display:none;">
+            </label>
+            <div id="logo-compress-info" class="muted small" style="margin-top:8px;">Recommended: 512×512 PNG, JPG, or WebP. Auto-compressed before saving.</div>
+          </div>
+        </div>
+      </div>
+
       <div class="admin-card" style="max-width:760px;margin:0 auto;">
         <h2>Store &amp; POS Settings</h2>
         <p class="muted small" style="margin:-4px 0 16px;">Configure business details, receipt print format, and tax rates.</p>
@@ -456,6 +480,23 @@
           <label for="item-price">Price (in Naira ₦)</label>
           <input type="number" id="item-price" class="form-control" placeholder="e.g. 500" min="0" step="50" required>
         </div>
+        <div class="form-group">
+          <label>Dish Photo</label>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <div style="width:72px;height:72px;border-radius:12px;overflow:hidden;border:1.5px solid var(--line);background:#fff;display:grid;place-items:center;flex-shrink:0;">
+              <img id="item-image-preview" src="/static/images/default_dish.svg" alt="Preview" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';" style="width:100%;height:100%;object-fit:cover;">
+            </div>
+            <div style="flex:1;">
+              <label class="btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:var(--paper);border:1px solid var(--line);padding:6px 14px;height:36px;font-weight:600;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                <span>Choose Photo</span>
+                <input type="file" id="item-image-input" accept="image/*" style="display:none;">
+              </label>
+              <button type="button" id="btn-reset-item-image" class="btn-sm btn-ghost" style="height:36px;padding:6px 10px;margin-left:6px;" title="Reset to default SVG">Use Default SVG</button>
+              <div id="item-image-info" class="muted small" style="margin-top:4px;">Default dish SVG is used if no photo is added. Automatically compressed on upload.</div>
+            </div>
+          </div>
+        </div>
         <div class="modal-actions" style="margin-top:20px;">
           <button type="submit" class="btn btn-primary btn-block">Save Dish</button>
           <button type="button" class="btn btn-ghost btn-block btn-close-modal">Cancel</button>
@@ -583,8 +624,106 @@
       });
     });
 
-    // ---- MENU DISHES CRUD ----
+    // ==============================================================
+    // Native Canvas Image Resizer & Compressor
+    // ==============================================================
+    async function compressImageFile(file, maxDimension = 512, quality = 0.85) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onerror = reject;
+          img.onload = () => {
+            let { width, height } = img;
+            if (width > maxDimension || height > maxDimension) {
+              if (width > height) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              } else {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const isPNG = file.type === 'image/png';
+            const mime = isPNG ? 'image/png' : 'image/jpeg';
+            const dataUrl = canvas.toDataURL(mime, quality);
+
+            const base64Len = dataUrl.length - dataUrl.indexOf(',') - 1;
+            const compBytes = Math.round((base64Len * 3) / 4);
+
+            resolve({
+              dataUrl,
+              origBytes: file.size,
+              compBytes,
+              width,
+              height,
+            });
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    // ---- STORE LOGO UPLOAD & NATIVE COMPRESSOR ----
+    const logoInput = document.getElementById('logo-file-input');
+    const logoPreview = document.getElementById('logo-preview-img');
+    const logoInfo = document.getElementById('logo-compress-info');
+
+    if (logoInput) {
+      logoInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        logoInfo.textContent = 'Compressing image...';
+        try {
+          const comp = await compressImageFile(file, 512, 0.90);
+          logoPreview.src = comp.dataUrl;
+          const reduction = Math.max(0, Math.round((1 - comp.compBytes / comp.origBytes) * 100));
+          logoInfo.textContent = `✓ Compressed: ${formatBytes(comp.origBytes)} → ${formatBytes(comp.compBytes)} (${reduction}% smaller, ${comp.width}×${comp.height}px). Uploading...`;
+
+          const res = await fetch('/api/admin/upload/logo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: comp.dataUrl }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            logoPreview.src = data.url;
+            logoInfo.innerHTML = `<span style="color:var(--leaf);font-weight:700;">✓ Logo uploaded successfully!</span> (${formatBytes(comp.compBytes)})`;
+            // Refresh topbar logo immediately
+            document.querySelectorAll('.brand-logo').forEach((l) => l.src = data.url);
+          } else {
+            const err = await res.text();
+            logoInfo.textContent = 'Upload failed: ' + err;
+          }
+        } catch (err) {
+          logoInfo.textContent = 'Error compressing: ' + err.message;
+        }
+      });
+    }
+
+    // ---- MENU DISHES CRUD & PHOTO COMPRESSOR ----
+    let pendingDishImage = null;
     const modalItem = document.getElementById('modal-item');
+    const dishImagePreview = document.getElementById('item-image-preview');
+    const dishImageInput = document.getElementById('item-image-input');
+    const dishImageInfo = document.getElementById('item-image-info');
+    const btnResetDishImage = document.getElementById('btn-reset-item-image');
+
     document.getElementById('btn-add-item').addEventListener('click', () => {
       document.getElementById('modal-item-title').textContent = 'Add Menu Dish';
       document.getElementById('item-id').value = '';
@@ -592,6 +731,9 @@
       document.getElementById('item-unitlabel').value = 'portion';
       document.getElementById('item-unittype').value = 'spoon';
       document.getElementById('item-price').value = '';
+      pendingDishImage = null;
+      dishImagePreview.src = '/static/images/default_dish.svg';
+      dishImageInfo.textContent = 'Default dish SVG is used if no photo is added. Auto-compressed on upload.';
       modalItem.hidden = false;
     });
 
@@ -605,9 +747,37 @@
         document.getElementById('item-unittype').value = d.unittype;
         document.getElementById('item-unitlabel').value = d.unitlabel;
         document.getElementById('item-price').value = Number(d.price) / 100;
+        pendingDishImage = null;
+        dishImagePreview.src = '/static/images/' + d.id + '.png?v=' + Date.now();
+        dishImageInfo.textContent = 'Click Choose Photo to replace. Auto-compressed on upload.';
         modalItem.hidden = false;
       });
     });
+
+    if (dishImageInput) {
+      dishImageInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        dishImageInfo.textContent = 'Compressing image...';
+        try {
+          const comp = await compressImageFile(file, 480, 0.85);
+          pendingDishImage = comp.dataUrl;
+          dishImagePreview.src = comp.dataUrl;
+          const reduction = Math.max(0, Math.round((1 - comp.compBytes / comp.origBytes) * 100));
+          dishImageInfo.innerHTML = `<span style="color:var(--leaf);font-weight:700;">✓ Compressed:</span> ${formatBytes(comp.origBytes)} → ${formatBytes(comp.compBytes)} (${reduction}% smaller, ${comp.width}×${comp.height}px)`;
+        } catch (err) {
+          dishImageInfo.textContent = 'Error compressing photo: ' + err.message;
+        }
+      });
+    }
+
+    if (btnResetDishImage) {
+      btnResetDishImage.addEventListener('click', () => {
+        pendingDishImage = 'default';
+        dishImagePreview.src = '/static/images/default_dish.svg';
+        dishImageInfo.textContent = 'Will display clean default dish SVG.';
+      });
+    }
 
     document.getElementById('item-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -626,12 +796,26 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (res.ok) {
-        window.location.reload();
-      } else {
+
+      if (!res.ok) {
         const err = await res.text();
         alert('Failed to save item: ' + err);
+        return;
       }
+
+      const savedItem = await res.json();
+      const targetItemId = savedItem.id || id;
+
+      // Upload photo if newly selected
+      if (pendingDishImage && pendingDishImage !== 'default' && targetItemId) {
+        await fetch(`/api/admin/upload/item/${targetItemId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: pendingDishImage }),
+        }).catch(() => {});
+      }
+
+      window.location.reload();
     });
 
     document.querySelectorAll('.btn-toggle-item').forEach((btn) => {

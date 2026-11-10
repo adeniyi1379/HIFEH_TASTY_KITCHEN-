@@ -21,7 +21,7 @@
 
   <header class="topbar">
     <div class="brand-row">
-      <img class="brand-logo" src="/static/images/logo.png" alt="{{.Business}}" onerror="this.onerror=null; this.src='/static/images/cloche.png';">
+      <img class="brand-logo" src="/static/images/logo.png" alt="{{.Business}}" onerror="this.onerror=null; this.src='/static/images/default_logo.svg';">
       <div class="brand-info">
         <strong class="brand-name">{{.Business}}</strong>
         <span class="brand-sub muted small">Terminal B · Customer view</span>
@@ -49,7 +49,7 @@
         {{range .Items}}
         <div class="item-card" data-cat="{{.CategoryID}}" data-item="{{.ID}}">
           <div class="item-img-wrap">
-            <img class="item-img" src="/static/images/{{.ID}}.png" alt="{{.Name}}" loading="lazy" onerror="this.onerror=null; this.src='/static/images/cloche.png';">
+            <img class="item-img" src="/static/images/{{.ID}}.png" alt="{{.Name}}" loading="lazy" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';">
           </div>
           <span class="item-name">{{.Name}}</span>
           <span class="item-unit small">per {{.UnitLabel}}</span>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" width="100%" height="100%">
+  <defs>
+    <linearGradient id="clocheGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCEFE7"/>
+      <stop offset="100%" stop-color="#F9DFC7"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F15B24"/>
+      <stop offset="100%" stop-color="#DC4B16"/>
+    </linearGradient>
+  </defs>
+  <!-- Background soft rounded card -->
+  <rect x="8" y="6" width="144" height="108" rx="16" fill="url(#clocheGrad)" />
+  
+  <!-- Steam curls -->
+  <path d="M68 32 Q65 24 70 18" stroke="#F15B24" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+  <path d="M80 29 Q84 21 79 15" stroke="#F15B24" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.8"/>
+  <path d="M92 32 Q89 24 94 18" stroke="#F15B24" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+
+  <!-- Cloche dome handle -->
+  <circle cx="80" cy="40" r="4.5" fill="url(#accentGrad)" />
+
+  <!-- Cloche dome -->
+  <path d="M48 76 C48 52 62 43 80 43 C98 43 112 52 112 76 Z" fill="#FFFFFF" stroke="#F15B24" stroke-width="3" stroke-linejoin="round"/>
+  
+  <!-- Inner shadow/shine curve on cloche -->
+  <path d="M58 72 C60 58 70 51 82 50" stroke="#FCEFE7" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+  <!-- Platter base -->
+  <path d="M42 77 Q42 75 46 75 L114 75 Q118 75 118 77 L116 82 Q115 84 111 84 L49 84 Q45 84 44 82 Z" fill="url(#accentGrad)"/>
+  <line x1="38" y1="87" x2="122" y2="87" stroke="#E5D7CC" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

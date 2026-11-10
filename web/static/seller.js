@@ -357,3 +357,169 @@ fetch('/api/current-order')
   .then((r) => r.json())
   .then((o) => { if (o) renderOrder(o); })
   .catch(() => {});
+
+// ---- Recent Orders & Manager Authorization ----
+
+const recentOrdersModal = $('recent-orders-modal');
+const managerAuthModal = $('manager-auth-modal');
+
+if ($('btn-recent-orders')) {
+  $('btn-recent-orders').addEventListener('click', async () => {
+    recentOrdersModal.hidden = false;
+    await loadRecentOrders();
+  });
+}
+
+if ($('close-recent-orders')) {
+  $('close-recent-orders').addEventListener('click', () => { recentOrdersModal.hidden = true; });
+}
+if ($('done-recent-orders')) {
+  $('done-recent-orders').addEventListener('click', () => { recentOrdersModal.hidden = true; });
+}
+if ($('btn-cancel-auth')) {
+  $('btn-cancel-auth').addEventListener('click', () => { managerAuthModal.hidden = true; });
+}
+
+async function loadRecentOrders() {
+  const container = $('recent-orders-list');
+  if (!container) return;
+  container.innerHTML = '<p class="muted small">Loading recent orders...</p>';
+  try {
+    const res = await fetch('/api/orders/recent');
+    const orders = await res.json();
+    if (!orders || orders.length === 0) {
+      container.innerHTML = '<p class="muted small">No recent orders found.</p>';
+      return;
+    }
+    container.innerHTML = '';
+    for (const o of orders) {
+      const card = document.createElement('div');
+      card.style.cssText = 'background:var(--bg);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);gap:10px;';
+      
+      let itemsSummary = '';
+      if (o.lines && o.lines.length > 0) {
+        itemsSummary = o.lines.map((l) => `${l.quantity}x ${l.name}`).join(', ');
+        if (itemsSummary.length > 34) itemsSummary = itemsSummary.substring(0, 34) + '...';
+      } else {
+        itemsSummary = 'No items';
+      }
+
+      const isPaid = o.status === 'paid';
+      const isVoid = o.status === 'void';
+      const statusBadge = isPaid
+        ? '<span class="status-badge status-active">Paid</span>'
+        : isVoid
+          ? '<span class="status-badge status-inactive">Void</span>'
+          : '<span class="status-badge" style="background:#FFF6E0;color:#8A6A0F;">Open</span>';
+
+      card.innerHTML = `
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+            <strong style="font-size:0.95rem;">${o.order_no}</strong>
+            ${statusBadge}
+            <span class="muted small">${o.type === 'dine_in' ? 'Dine-in' : 'Takeaway'}</span>
+          </div>
+          <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${itemsSummary}</div>
+          <div style="font-size:0.95rem;font-weight:800;color:var(--ink);margin-top:2px;">${naira(o.total_kobo)}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0;">
+          ${isPaid ? `<button class="btn-sm btn-reprint-order" data-id="${o.id}" data-no="${o.order_no}" style="background:var(--paper);border:1px solid #888;color:#555;">🖨️ Reprint</button>` : ''}
+          ${!isVoid ? `<button class="btn-sm btn-reopen-order" data-id="${o.id}" data-no="${o.order_no}" style="background:var(--paper);border-color:var(--jollof);color:var(--jollof);">Edit Order</button>` : ''}
+          ${isPaid ? `<button class="btn-sm btn-danger btn-void-order" data-id="${o.id}" data-no="${o.order_no}">Void</button>` : ''}
+        </div>
+      `;
+      container.appendChild(card);
+    }
+  } catch (e) {
+    container.innerHTML = '<p class="error small">Failed to load orders.</p>';
+  }
+}
+
+if ($('recent-orders-list')) {
+  $('recent-orders-list').addEventListener('click', (e) => {
+    const reprintBtn = e.target.closest('.btn-reprint-order');
+    if (reprintBtn) {
+      reprintReceipt(reprintBtn.dataset.id, reprintBtn.dataset.no);
+      return;
+    }
+    const reopenBtn = e.target.closest('.btn-reopen-order');
+    if (reopenBtn) {
+      promptManagerAuth(reopenBtn.dataset.id, reopenBtn.dataset.no, 'reopen');
+      return;
+    }
+    const voidBtn = e.target.closest('.btn-void-order');
+    if (voidBtn) {
+      promptManagerAuth(voidBtn.dataset.id, voidBtn.dataset.no, 'void');
+      return;
+    }
+  });
+}
+
+async function reprintReceipt(orderId, orderNo) {
+  try {
+    // Log the reprint in audit trail
+    await fetch(`/api/order/${orderId}/reprint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    // Fetch full order data
+    const res = await fetch(`/api/order/${orderId}`);
+    if (!res.ok) { toast('Failed to load order for reprinting'); return; }
+    const order = await res.json();
+    populateReceipt(order);
+    setTimeout(() => { window.print(); }, 150);
+    toast(`Receipt reprinted for Order #${orderNo}`);
+  } catch (err) {
+    toast('Reprint error: ' + err.message);
+  }
+}
+
+function promptManagerAuth(orderId, orderNo, action) {
+  $('auth-order-id').value = orderId;
+  $('auth-action').value = action;
+  $('auth-order-label').textContent = `${action === 'reopen' ? 'Editing' : 'Voiding'} Order #${orderNo}`;
+  $('btn-submit-auth').textContent = action === 'reopen' ? 'Authorize & Edit Order' : 'Authorize & Void Order';
+  $('manager-auth-pin').value = '';
+  $('manager-auth-reason').value = '';
+  managerAuthModal.hidden = false;
+  $('manager-auth-pin').focus();
+}
+
+if ($('manager-auth-form')) {
+  $('manager-auth-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const orderId = $('auth-order-id').value;
+    const action = $('auth-action').value;
+    const pin = $('manager-auth-pin').value.trim();
+    const reason = $('manager-auth-reason').value.trim();
+
+    try {
+      const res = await fetch(`/api/order/${orderId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manager_pin: pin, reason }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        alert('Authorization Failed: ' + err);
+        return;
+      }
+
+      const order = await res.json();
+      managerAuthModal.hidden = true;
+      recentOrdersModal.hidden = true;
+
+      if (action === 'reopen') {
+        renderOrder(order);
+        toast(`Order #${order.order_no} loaded for editing`);
+      } else {
+        renderOrder(null);
+        toast(`Order #${order.order_no} voided`);
+      }
+    } catch (err) {
+      alert('Request error: ' + err.message);
+    }
+  });
+}

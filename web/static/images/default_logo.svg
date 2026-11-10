@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <defs>
+    <linearGradient id="logoBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F15B24"/>
+      <stop offset="100%" stop-color="#DC4B16"/>
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="56" fill="url(#logoBg)"/>
+  <circle cx="60" cy="60" r="50" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-dasharray="4 3" opacity="0.6"/>
+  <!-- Chef hat / culinary monogram -->
+  <path d="M42 66 L78 66 L76 76 L44 76 Z" fill="#FFFFFF"/>
+  <path d="M42 66 C35 66 32 58 37 52 C35 44 45 40 50 44 C54 36 66 36 70 44 C75 40 85 44 83 52 C88 58 85 66 78 66 Z" fill="#FFFFFF"/>
+  <line x1="48" y1="71" x2="72" y2="71" stroke="#F15B24" stroke-width="2" stroke-linecap="round"/>
+</svg>

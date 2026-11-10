@@ -45,9 +45,15 @@ type Order struct {
 // (what the buyer display mirrors), or ErrNoOpenOrder.
 func GetLatestOrder(ctx context.Context, db *sql.DB) (*Order, error) {
 	var id string
+	// Prioritize currently open or displayed orders, sorted by most recently updated
 	err := db.QueryRowContext(ctx,
-		`SELECT id FROM orders WHERE status IN ('open','displayed','paid') ORDER BY created_at DESC LIMIT 1`,
+		`SELECT id FROM orders WHERE status IN ('open','displayed') ORDER BY updated_at DESC, created_at DESC LIMIT 1`,
 	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = db.QueryRowContext(ctx,
+			`SELECT id FROM orders WHERE status IN ('open','displayed','paid') ORDER BY updated_at DESC, created_at DESC LIMIT 1`,
+		).Scan(&id)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNoOpenOrder
 	}
@@ -55,6 +61,66 @@ func GetLatestOrder(ctx context.Context, db *sql.DB) (*Order, error) {
 		return nil, err
 	}
 	return getOrder(ctx, db, id)
+}
+
+func GetOrderByID(ctx context.Context, db *sql.DB, id string) (*Order, error) {
+	return getOrder(ctx, db, id)
+}
+
+func ReopenOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error) {
+	res, err := db.ExecContext(ctx,
+		`UPDATE orders SET status = 'open', updated_at = datetime('now') WHERE id = ?`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, errors.New("order not found")
+	}
+	return getOrder(ctx, db, orderID)
+}
+
+func VoidOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error) {
+	res, err := db.ExecContext(ctx,
+		`UPDATE orders SET status = 'void', updated_at = datetime('now') WHERE id = ?`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, errors.New("order not found")
+	}
+	return getOrder(ctx, db, orderID)
+}
+
+func ListRecentOrders(ctx context.Context, db *sql.DB, limit int) ([]Order, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id FROM orders ORDER BY updated_at DESC, created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+
+	var orders []Order
+	for _, id := range ids {
+		o, err := getOrder(ctx, db, id)
+		if err == nil && o != nil {
+			orders = append(orders, *o)
+		}
+	}
+	return orders, nil
 }
 
 func getOrder(ctx context.Context, q queryer, id string) (*Order, error) {
@@ -239,7 +305,7 @@ func ClearOrder(ctx context.Context, db *sql.DB, orderID string) error {
 func ensureOpenOrder(ctx context.Context, tx *sql.Tx, userID string) (string, error) {
 	var orderID string
 	err := tx.QueryRowContext(ctx,
-		`SELECT id FROM orders WHERE status IN ('open','displayed') ORDER BY created_at DESC LIMIT 1`).Scan(&orderID)
+		`SELECT id FROM orders WHERE status IN ('open','displayed') ORDER BY updated_at DESC, created_at DESC LIMIT 1`).Scan(&orderID)
 	if err == nil {
 		return orderID, nil
 	}

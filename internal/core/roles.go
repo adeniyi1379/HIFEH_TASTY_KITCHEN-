@@ -17,7 +17,7 @@ const (
 
 var roleCaps = map[string][]string{
 	"cashier": {CapSell, CapMirror},
-	"manager": {CapSell, CapCorrect, CapAdminister},
+	"manager": {CapSell, CapCorrect},
 	"owner":   {CapAdminister},
 }
 

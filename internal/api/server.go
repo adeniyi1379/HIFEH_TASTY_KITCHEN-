@@ -2,15 +2,21 @@ package api
 
 import (
 	"crypto/rand"
+	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
-	"database/sql"
+	"time"
 
 	"tatsy/internal/core"
 	"tatsy/internal/store"
@@ -39,7 +45,15 @@ func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	static := http.FileServerFS(web.Static)
-	mux.Handle("GET /static/", static)
+	mux.HandleFunc("GET /static/", func(w http.ResponseWriter, r *http.Request) {
+		rel := strings.TrimPrefix(r.URL.Path, "/static/")
+		diskPath := filepath.Join("web", "static", filepath.Clean("/"+rel))
+		if fi, err := os.Stat(diskPath); err == nil && !fi.IsDir() {
+			http.ServeFile(w, r, diskPath)
+			return
+		}
+		static.ServeHTTP(w, r)
+	})
 
 	mux.HandleFunc("GET /login", s.pageLogin)
 	mux.HandleFunc("POST /api/login", s.apiLogin)
@@ -60,6 +74,11 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.Handle("POST /api/order/send", s.requireCap(core.CapSell, http.HandlerFunc(s.apiSend)))
 	mux.Handle("POST /api/order/pay", s.requireCap(core.CapSell, http.HandlerFunc(s.apiPay)))
 	mux.Handle("POST /api/order/clear", s.requireCap(core.CapSell, http.HandlerFunc(s.apiClear)))
+	mux.Handle("GET /api/orders/recent", s.requireCap(core.CapSell, http.HandlerFunc(s.apiRecentOrders)))
+	mux.Handle("GET /api/order/{id}", s.auth(http.HandlerFunc(s.apiGetOrder)))
+	mux.Handle("POST /api/order/{id}/reprint", s.auth(http.HandlerFunc(s.apiReprintOrder)))
+	mux.Handle("POST /api/order/{id}/reopen", s.requireCap(core.CapSell, http.HandlerFunc(s.apiReopenOrder)))
+	mux.Handle("POST /api/order/{id}/void", s.requireCap(core.CapSell, http.HandlerFunc(s.apiVoidOrder)))
 
 	// Admin / Manager CRUD & Configurations
 	mux.Handle("GET /api/admin/workers", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminListWorkers)))
@@ -82,6 +101,8 @@ func (s *Server) Routes() *http.ServeMux {
 
 	mux.Handle("GET /api/admin/settings", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminGetSettings)))
 	mux.Handle("PUT /api/admin/settings", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUpdateSettings)))
+	mux.Handle("POST /api/admin/upload/logo", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUploadLogo)))
+	mux.Handle("POST /api/admin/upload/item/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUploadItemImage)))
 
 	mux.Handle("GET /api/admin/reports/today", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminGetTodayReport)))
 
@@ -193,7 +214,7 @@ func (s *Server) pageSeller(w http.ResponseWriter, r *http.Request) {
 		"Categories":  cats,
 		"Items":       items,
 		"Business":    set.BusinessName,
-		"CanAdmin":    core.Allowed(user.Role, core.CapAdminister),
+		"IsOwner":     user.Role == "owner",
 	})
 }
 
@@ -462,6 +483,130 @@ func (s *Server) apiClear(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.Broadcast("order", nil)
 	writeJSON(w, http.StatusOK, nil)
+}
+
+func (s *Server) apiRecentOrders(w http.ResponseWriter, r *http.Request) {
+	orders, err := store.ListRecentOrders(r.Context(), s.db, 20)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, orders)
+}
+
+func (s *Server) apiGetOrder(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	o, err := store.GetOrderByID(r.Context(), s.db, id)
+	if err != nil {
+		http.Error(w, "order not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, o)
+}
+
+func (s *Server) apiReprintOrder(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	o, err := store.GetOrderByID(r.Context(), s.db, id)
+	if err != nil {
+		http.Error(w, "order not found", http.StatusNotFound)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "receipt_reprinted", "order", o.ID,
+		map[string]any{"order_no": o.OrderNo, "reprinted_by": user.Name, "total_kobo": o.TotalKobo})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "order": o})
+}
+
+func (s *Server) apiReopenOrder(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		ManagerPIN string `json:"manager_pin"`
+		Reason     string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	mgr, err := store.FindByPIN(r.Context(), s.db, req.ManagerPIN)
+	if err != nil || mgr == nil {
+		http.Error(w, "invalid PIN", http.StatusUnauthorized)
+		return
+	}
+	if mgr.Role != "manager" && mgr.Role != "owner" {
+		http.Error(w, "manager or owner authorization required", http.StatusForbidden)
+		return
+	}
+
+	o, err := store.ReopenOrder(r.Context(), s.db, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	reason := req.Reason
+	if reason == "" {
+		reason = "Recent order correction"
+	}
+
+	_ = store.Audit(r.Context(), s.db, mgr.ID, mgr.Name, "T1", "order_reopened", "order", o.ID,
+		map[string]any{
+			"order_no":     o.OrderNo,
+			"manager_name": mgr.Name,
+			"cashier_name": user.Name,
+			"prev_total":   o.TotalKobo,
+			"reason":       reason,
+		})
+
+	s.hub.Broadcast("order", o)
+	writeJSON(w, http.StatusOK, o)
+}
+
+func (s *Server) apiVoidOrder(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		ManagerPIN string `json:"manager_pin"`
+		Reason     string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	mgr, err := store.FindByPIN(r.Context(), s.db, req.ManagerPIN)
+	if err != nil || mgr == nil {
+		http.Error(w, "invalid PIN", http.StatusUnauthorized)
+		return
+	}
+	if mgr.Role != "manager" && mgr.Role != "owner" {
+		http.Error(w, "manager or owner authorization required", http.StatusForbidden)
+		return
+	}
+
+	o, err := store.VoidOrder(r.Context(), s.db, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	reason := req.Reason
+	if reason == "" {
+		reason = "Order voided"
+	}
+
+	_ = store.Audit(r.Context(), s.db, mgr.ID, mgr.Name, "T1", "order_voided", "order", o.ID,
+		map[string]any{
+			"order_no":     o.OrderNo,
+			"manager_name": mgr.Name,
+			"cashier_name": user.Name,
+			"total_kobo":   o.TotalKobo,
+			"reason":       reason,
+		})
+
+	s.hub.Broadcast("order", nil)
+	writeJSON(w, http.StatusOK, o)
 }
 
 // latestOrderID resolves the order being worked on. Phase 1 keeps a
@@ -774,4 +919,78 @@ func (s *Server) apiAdminGetTodayReport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, rep)
+}
+
+func saveImageFromRequest(r *http.Request, targetPath string) error {
+	contentType := r.Header.Get("Content-Type")
+
+	// 1. Base64 payload
+	if strings.Contains(contentType, "application/json") {
+		var req struct {
+			Image string `json:"image"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return err
+		}
+		data := req.Image
+		if idx := strings.Index(data, ","); idx != -1 {
+			data = data[idx+1:]
+		}
+		raw, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(targetPath, raw, 0644)
+	}
+
+	// 2. Multipart form file
+	if err := r.ParseMultipartForm(10 << 20); err == nil {
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return err
+		}
+		out, err := os.Create(targetPath)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		_, err = io.Copy(out, file)
+		return err
+	}
+
+	return errors.New("unsupported content type")
+}
+
+func (s *Server) apiAdminUploadLogo(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	target := filepath.Join("web", "static", "images", "logo.png")
+	if err := saveImageFromRequest(r, target); err != nil {
+		http.Error(w, "upload failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "logo_uploaded", "settings", "1", nil)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": "/static/images/logo.png?v=" + fmt.Sprint(time.Now().Unix())})
+}
+
+func (s *Server) apiAdminUploadItemImage(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing item id", http.StatusBadRequest)
+		return
+	}
+	target := filepath.Join("web", "static", "images", id+".png")
+	if err := saveImageFromRequest(r, target); err != nil {
+		http.Error(w, "upload failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_image_uploaded", "item", id, nil)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": "/static/images/" + id + ".png?v=" + fmt.Sprint(time.Now().Unix())})
 }
