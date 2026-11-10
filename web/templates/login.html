@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Hifeh Tasty Kitchen</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-body">
+  <!-- Decorative background wave shapes -->
+  <div class="bg-wave bg-wave-top" aria-hidden="true">
+    <svg viewBox="0 0 500 240" fill="none" preserveAspectRatio="none">
+      <path d="M0,0 C120,60 260,115 390,110 C440,108 475,95 500,80 L500,0 Z" fill="#F8E8DD" />
+    </svg>
+  </div>
+  <div class="bg-wave bg-wave-bottom" aria-hidden="true">
+    <svg viewBox="0 0 450 180" fill="none" preserveAspectRatio="none">
+      <path d="M0,90 C80,95 180,135 270,160 C330,175 380,180 450,180 L0,180 Z" fill="#F8E8DD" />
+    </svg>
+  </div>
+
+  <main class="login-card">
+    <div class="brand">
+      <img class="brand-logo brand-logo-lg" src="/static/images/logo.png" alt="Hifeh Tasty Kitchen" onerror="this.onerror=null; this.src='/static/images/cloche.png';">
+      <h1>Hifeh Tasty Kitchen</h1>
+      <p class="muted">Fresh jollof, fried rice &amp; more</p>
+    </div>
+    <form id="login-form">
+      <label for="pin">Enter your PIN</label>
+      <input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="off"
+             maxlength="6" placeholder="••••••" autofocus required>
+      <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+      <p id="login-error" class="error" hidden>Wrong PIN. Try again.</p>
+    </form>
+    <p class="muted small hint-text">Every sale is recorded against the signed-in worker.</p>
+  </main>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pin = document.getElementById('pin').value.trim();
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pin})
+      });
+      if (res.ok) {
+        const u = await res.json();
+        window.location.href = u.role === 'owner' ? '/admin' : '/';
+      } else {
+        document.getElementById('login-error').hidden = false;
+        document.getElementById('pin').select();
+      }
+    });
+  </script>
+</body>
+</html>

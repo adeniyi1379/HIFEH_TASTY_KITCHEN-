@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner console · {{.Business}}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="seller-body">
+  <header class="topbar">
+    <div class="brand-row">
+      <img class="brand-logo" src="/static/images/logo.png" alt="{{.Business}}" onerror="this.onerror=null; this.src='/static/images/cloche.png';">
+      <div class="brand-info">
+        <strong class="brand-name">{{.Business}}</strong>
+        <span class="brand-sub muted small">Owner console</span>
+      </div>
+      <div class="topbar-divider"></div>
+    </div>
+    <div class="top-actions">
+      <div class="user-chip">
+        <span class="user-chip-text">{{.User.Name}} · owner</span>
+      </div>
+      <button id="logout" class="btn-logout">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+          <polyline points="16 17 21 12 16 7"></polyline>
+          <line x1="21" y1="12" x2="9" y2="12"></line>
+        </svg>
+        <span>Log out</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="admin-layout">
+    <section class="admin-card wide">
+      <h2>Audit trail</h2>
+      <p class="muted small">Every important action, with who and when. Visible to the owner only. Entries can never be edited or erased.</p>
+      <table class="table">
+        <thead><tr><th>When</th><th>Who</th><th>Terminal</th><th>Action</th><th>Details</th></tr></thead>
+        <tbody>
+          {{if .Audit}}
+          {{range .Audit}}
+          <tr>
+            <td class="utc" data-utc="{{.At}}">{{.At}}</td>
+            <td>{{if .UserName}}{{.UserName}}{{else}}<span class="muted">—</span>{{end}}</td>
+            <td>{{.TerminalID}}</td>
+            <td><span class="action-pill">{{.Action}}</span></td>
+            <td><code class="small">{{.Details}}</code></td>
+          </tr>
+          {{end}}
+          {{else}}
+          <tr><td colspan="5" class="muted">No activity recorded yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="admin-card">
+      <h2>Workers</h2>
+      <table class="table">
+        <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
+        <tbody>
+          {{range .Workers}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td><span class="action-pill role-{{.Role}}">{{.Role}}</span></td>
+            <td>{{if .Active}}<span class="muted">active</span>{{else}}<span class="muted">deactivated</span>{{end}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      <p class="muted small">Worker creation, PIN resets and deactivation arrive with the stock &amp; control phase.</p>
+    </section>
+
+    <section class="admin-card">
+      <h2>Settings</h2>
+      <table class="table">
+        <tbody>
+          <tr><td>Business name</td><td>{{.Settings.BusinessName}}</td></tr>
+          <tr><td>VAT</td><td>{{if .Settings.VATEnabled}}{{.Settings.VATMode}} at {{.Settings.VATRateBP}} bp{{else}}off{{end}}</td></tr>
+          <tr><td>Packaging fee</td><td data-kobo="{{.Settings.PackagingFeeKobo}}" class="naira"></td></tr>
+        </tbody>
+      </table>
+      <p class="muted small">VAT editing, receipt text and backups arrive with later phases.</p>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('logout').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login';
+    });
+    const naira = (kobo) =>
+      '\u20A6' + (kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    document.querySelectorAll('.naira').forEach((el) => {
+      el.textContent = naira(Number(el.dataset.kobo));
+    });
+    // sqlite stores UTC; show it in the owner's local time
+    document.querySelectorAll('.utc').forEach((el) => {
+      const d = new Date(el.dataset.utc.replace(' ', 'T') + 'Z');
+      if (!isNaN(d)) el.textContent = d.toLocaleString();
+    });
+  </script>
+</body>
+</html>
