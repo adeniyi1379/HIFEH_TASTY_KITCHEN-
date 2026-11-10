@@ -30,52 +30,33 @@ A fast, offline-first Point of Sale (POS) system built for Nigerian restaurants 
 
 ### Prerequisites
 
-- **Go 1.22+** installed ([download](https://go.dev/dl/))
 - A modern web browser (Chrome, Firefox, Edge)
 - Optional: thermal receipt printer (80mm)
 
-### Build & Run (Linux / macOS)
+### Getting Started (Windows)
+
+1. **Double-click `posd.exe`** — the server starts immediately
+2. Open your browser and go to **`http://localhost:8080`**
+3. Log in with a PIN (see default PINs below)
+
+> **💡 Windows Tips:**
+> - If you get a **Windows Firewall** prompt, click **"Allow access"** so other devices on your network (customer display, etc.) can connect.
+> - To keep the server running, don't close the terminal window that appears.
+> - You can create a shortcut to `posd.exe` on the Desktop for quick launch.
+> - To run on startup: press `Win + R`, type `shell:startup`, and place a shortcut to `posd.exe` there.
+> - To stop the server, press `Ctrl + C` in the terminal or close the window.
+
+### Getting Started (Linux)
 
 ```bash
-# Enter the project folder
-cd tatsy
-
-# Build the binary
-go build -o posd ./cmd/posd
+# Make it executable (first time only)
+chmod +x posd
 
 # Run the POS server
 ./posd
 ```
 
-### Build & Run (Windows)
-
-```powershell
-# Open Command Prompt or PowerShell, navigate to the project folder
-cd tatsy
-
-# Build the executable
-go build -o posd.exe ./cmd/posd
-
-# Run the POS server
-.\posd.exe
-```
-
-> **💡 Windows Tips:**
-> - If you get a **Windows Firewall** prompt when you first run `posd.exe`, click **"Allow access"** so other devices on your network (customer display, etc.) can connect.
-> - To keep the server running, don't close the Command Prompt / PowerShell window.
-> - You can create a shortcut to `posd.exe` on the Desktop for quick launch — double-click to start.
-> - To run on startup: press `Win + R`, type `shell:startup`, and place a shortcut to `posd.exe` there.
-> - To stop the server, press `Ctrl + C` in the terminal or close the window.
-
-### Build for Windows from Linux (Cross-Compile)
-
-If you're developing on Linux but need a Windows `.exe`:
-
-```bash
-GOOS=windows GOARCH=amd64 go build -o posd.exe ./cmd/posd
-```
-
-Copy `posd.exe` and the `web/static/images/` folder to the Windows machine. The database (`pos.db`) is created automatically on first run.
+Then open **`http://localhost:8080`** in your browser.
 
 ---
 
@@ -87,9 +68,11 @@ open the till on this PC  url=http://localhost:8080
 open the buyer display on Terminal B  url=http://<your-ip>:8080/display
 ```
 
-### Configuration
+The database file (`pos.db`) is created automatically on first run.
 
-You can set the listen address and database path via flags:
+### Configuration (Optional)
+
+You can customize the port and database path:
 
 ```bash
 # Linux / macOS
