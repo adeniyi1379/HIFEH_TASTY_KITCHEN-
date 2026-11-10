@@ -1,309 +1,146 @@
-# Tatsy — Hifeh Tasty Kitchen POS
+# Hifeh Tasty Kitchen — POS System
 
 <p align="center">
   <img src="web/static/images/logo.png" alt="Hifeh Tasty Kitchen" width="120">
 </p>
 
-A fast, offline-first Point of Sale (POS) system built for Nigerian restaurants and food businesses. Single binary, no internet required — runs on any laptop or mini PC behind the counter.
+Your restaurant's point of sale — take orders, print receipts, and track sales. Works offline, no internet needed.
 
 ---
 
-## ✨ Features
+## 📦 What's Inside
 
-| Feature | Description |
+You only need **one file**: `posd.exe`. Everything is packed inside it.
+
+When you run it for the first time, it creates a `pos.db` file — this stores all your orders, menu, and staff data. **Do not delete this file.**
+
+---
+
+## 🚀 How to Start
+
+1. **Double-click `posd.exe`**
+2. A black window opens — this means it's running. **Don't close it.**
+3. Open **Google Chrome** and go to: **`http://localhost:8080`**
+4. Enter your PIN to log in
+
+That's it — you're ready to sell!
+
+> If Windows asks "Do you want to allow this app?" — click **Yes / Allow access**.
+
+---
+
+## 🔑 Default PINs
+
+| Who | PIN |
 |---|---|
-| **Till (Cashier Screen)** | Tap-to-add menu grid, quantity controls, dine-in / takeaway toggle, table numbers |
-| **Customer Display** | Real-time order mirror on a second screen (TV/tablet), shows items as they're added, full-screen payment confirmation overlay |
-| **Thermal Receipt Printing** | 80mm receipt format via browser `@media print`, includes order number, items, totals, business details |
-| **Reprint Receipts** | Reprint any recent receipt directly from the Recent Orders list |
-| **Admin Console** | Manage menu items, categories, staff, settings, upload images, view sales reports |
-| **Manager PIN Auth** | Edit or void recent paid orders with manager/owner PIN authorization — logged to audit trail |
-| **Image Management** | Upload dish photos and logo via admin, auto-compressed client-side before upload, SVG fallbacks |
-| **Live Updates (SSE)** | Changes propagate instantly to customer display via Server-Sent Events |
-| **Roles & Permissions** | Owner, Manager, and Cashier roles with granular capability controls |
-| **VAT / Tax** | Configurable VAT (inclusive or exclusive), packaging fee for takeaway orders |
-| **Audit Trail** | Immutable log of all corrections, voids, reprints — visible to Owner only |
+| **Owner** | `123456` |
+| **Manager Ada** | `234567` |
+| **Cashier Amaka** | `345678` |
+| **Cashier Tunde** | `456789` |
+
+⚠️ **Change these PINs** after your first login. Go to Admin Console → Staff & Workers.
 
 ---
 
-## 🚀 Quick Start
+## 🖥️ Setting Up the Customer Screen
 
-### Prerequisites
+You can show customers what they're ordering on a second screen (TV or tablet).
 
-- A modern web browser (Chrome, Firefox, Edge)
-- Optional: thermal receipt printer (80mm)
+1. When you start `posd.exe`, look at the black window — it shows a link like:
+   ```
+   http://192.168.1.50:8080/display
+   ```
+2. Open that link on the TV or tablet browser
+3. It will mirror the order in real time
 
-### Getting Started (Windows)
-
-1. **Double-click `posd.exe`** — the server starts immediately
-2. Open your browser and go to **`http://localhost:8080`**
-3. Log in with a PIN (see default PINs below)
-
-> **💡 Windows Tips:**
-> - If you get a **Windows Firewall** prompt, click **"Allow access"** so other devices on your network (customer display, etc.) can connect.
-> - To keep the server running, don't close the terminal window that appears.
-> - You can create a shortcut to `posd.exe` on the Desktop for quick launch.
-> - To run on startup: press `Win + R`, type `shell:startup`, and place a shortcut to `posd.exe` there.
-> - To stop the server, press `Ctrl + C` in the terminal or close the window.
-
-### Getting Started (Linux)
-
-```bash
-# Make it executable (first time only)
-chmod +x posd
-
-# Run the POS server
-./posd
-```
-
-Then open **`http://localhost:8080`** in your browser.
+> The TV/tablet must be on the **same Wi-Fi** as the POS computer.
 
 ---
 
-The server starts on **port 8080** by default. You'll see:
+## 🍽️ Taking Orders
 
-```
-tatsy POS server running  addr=:8080  db=pos.db
-open the till on this PC  url=http://localhost:8080
-open the buyer display on Terminal B  url=http://<your-ip>:8080/display
-```
-
-The database file (`pos.db`) is created automatically on first run.
-
-### Configuration (Optional)
-
-You can customize the port and database path:
-
-```bash
-# Linux / macOS
-./posd -addr :9090 -db mystore.db
-
-# Windows
-.\posd.exe -addr :9090 -db mystore.db
-```
+1. Log in with your PIN
+2. Pick **Dine-in** or **Takeaway**
+3. Tap on dishes to add them
+4. Use **+** / **−** to change quantities
+5. Press **"Show on display"** to show the customer
+6. Press **"Pay (cash)"** when the customer pays
+7. Choose to **print a receipt** or skip
 
 ---
 
-## 🔐 Default Login PINs
+## 🖨️ Reprinting a Receipt
 
-| Role | Name | PIN |
-|---|---|---|
-| **Owner** | Owner | `123456` |
-| **Manager** | Manager Ada | `234567` |
-| **Cashier** | Amaka | `345678` |
-| **Cashier** | Tunde | `456789` |
-
-> **⚠️ Change these PINs immediately** in the Admin Console → Staff & Workers after first login.
+1. Click the **clock icon** (Recent) at the top
+2. Find the order
+3. Click **🖨️ Reprint**
 
 ---
 
-## 📱 Pages & URLs
+## ✏️ Editing or Cancelling a Paid Order
 
-| Page | URL | Who Uses It |
-|---|---|---|
-| **Login** | `/login` | Everyone |
-| **Till** | `/` | Cashiers, Managers |
-| **Customer Display** | `/display` | Customer-facing screen (TV/tablet) |
-| **Admin Console** | `/admin` | Owner (Manager sees limited version) |
-
-### Typical Setup
-
-1. **Counter PC** — Open the Till at `http://localhost:8080` (cashier logs in)
-2. **Customer Screen** — Open `http://<server-ip>:8080/display` on a second monitor, TV, or tablet facing the customer
-3. **Back Office** — Owner logs in and opens `/admin` for management
-
----
-
-## 🍽️ How to Use the Till
-
-### Taking an Order
-
-1. **Log in** with your PIN
-2. **Select order type**: Dine-in or Takeaway (optionally set table number)
-3. **Tap menu items** to add them to the order — quantities update automatically
-4. Use **+** / **−** buttons to adjust quantities, or remove items
-5. Click **"Show on display"** to push the order to the customer screen
-6. Click **"Pay (cash)"** to complete the payment
-
-### After Payment
-
-- A **confirmation modal** appears showing the order summary
-- Choose **"Yes, Print Receipt"** to print via thermal printer, or **"No Thanks"** to start a new order
-- The customer display automatically shows a payment success overlay
-
-### Reprinting a Receipt
-
-1. Click the **"Recent"** button (clock icon) in the Till header
-2. Find the paid order and click **🖨️ Reprint**
-3. The browser print dialog opens with the receipt
-
-### Editing / Voiding a Paid Order
-
-1. Click **"Recent"** → find the order
+1. Click the **clock icon** (Recent)
 2. Click **"Edit Order"** or **"Void"**
-3. Enter a **Manager or Owner PIN** and a reason
-4. The action is logged to the audit trail
+3. A manager or owner must enter their PIN and give a reason
+4. The change is recorded and cannot be erased
 
 ---
 
-## ⚙️ Admin Console
+## ⚙️ Admin Console (Owner Only)
 
-Access at `/admin` (Owner login required).
+1. Log in as **Owner**
+2. Click **"Console"** at the top
+3. From here you can:
+   - View **today's sales** and reports
+   - **Add, edit, or remove dishes** from the menu
+   - **Upload photos** for dishes and your logo
+   - **Add or remove staff** and reset PINs
+   - Change **business name**, receipt text, and tax settings
+   - View the **audit trail** (who changed or voided what)
 
-### Tabs
+---
 
-| Tab | What You Can Do |
+## 🖨️ Setting Up Your Printer
+
+This works with **80mm thermal receipt printers** (the small ones restaurants use).
+
+1. Install your printer on Windows normally
+2. When the print window appears in Chrome, select your thermal printer
+3. Set margins to **None**
+4. Untick "Headers and footers"
+
+**Tip:** In Chrome, you can set your thermal printer as the default so it prints faster.
+
+---
+
+## 💾 Backing Up Your Data
+
+All your data (orders, menu, staff) is in one file: **`pos.db`**
+
+To back up, just **copy `pos.db`** to a USB drive or another folder. Do this regularly!
+
+---
+
+## 🔄 Auto-Start When Computer Turns On
+
+1. Right-click `posd.exe` → **Create shortcut**
+2. Press `Win + R` on your keyboard
+3. Type `shell:startup` and press Enter
+4. Move the shortcut into the folder that opens
+5. Done — POS will start automatically every time you turn on the computer
+
+---
+
+## ❓ Troubleshooting
+
+| Problem | Solution |
 |---|---|
-| **Overview & Sales** | Today's revenue, order count, top items, per-cashier breakdown |
-| **Menu Items** | Add, edit, toggle active, delete dishes/drinks; upload photos |
-| **Categories** | Create, rename, delete menu categories |
-| **Staff & Workers** | Add users, assign roles, reset PINs, activate/deactivate |
-| **Settings** | Business name, receipt footer, VAT config, packaging fee, logo upload |
-| **Audit Trail** *(Owner only)* | View all corrections, voids, reprints with timestamps and reasons |
-
-### Uploading Images
-
-- **Dish photos**: Edit a menu item → click the image area → select a photo
-- **Logo**: Settings tab → Upload Logo section
-- Images are **automatically compressed** client-side (resized to max 400×400 for dishes, 200×200 for logo) before upload
-- If no image is uploaded, a **default SVG placeholder** is shown
+| Browser says "can't connect" | Make sure the black window (`posd.exe`) is still open |
+| Customer screen doesn't load | Make sure both devices are on the same Wi-Fi |
+| Forgot a PIN | Owner can reset any PIN in Admin Console → Staff & Workers |
+| Printer not working | Check it's installed in Windows Settings → Printers, then select it in Chrome's print dialog |
+| "Address already in use" error | Close any other `posd.exe` that might be running (check your taskbar) |
 
 ---
 
-## 🏗️ Architecture
-
-```
-tatsy/
-├── cmd/posd/           # Entry point — starts HTTP server
-├── internal/
-│   ├── api/            # HTTP handlers, routing, SSE hub, sessions
-│   ├── core/           # Roles & capabilities (Owner, Manager, Cashier)
-│   └── store/          # SQLite data layer — orders, menu, users, audit, settings
-├── web/
-│   ├── static/         # CSS, JS, images (embedded + disk overlay for uploads)
-│   └── templates/      # Go HTML templates (seller, display, admin, login)
-├── go.mod
-└── pos.db              # SQLite database (created on first run)
-```
-
-### Tech Stack
-
-- **Backend**: Go standard library (`net/http`, `html/template`, `database/sql`)
-- **Database**: SQLite via `modernc.org/sqlite` (pure Go, no CGO)
-- **Frontend**: Vanilla HTML/CSS/JS — no frameworks, no build step
-- **Real-time**: Server-Sent Events (SSE)
-- **Auth**: Argon2id PIN hashing (`golang.org/x/crypto/argon2`)
-- **Static files**: Embedded via `embed.FS`, disk overlay for uploaded images
-
-### Data Flow
-
-```
-Cashier (Till)  →  POST /api/order/*  →  Go Server  →  SQLite
-                                           ↓ SSE
-                                     Customer Display
-```
-
----
-
-## 🖨️ Receipt Printing
-
-Receipts are formatted for **80mm thermal printers** using CSS `@media print`. To print:
-
-1. When the browser print dialog appears, select your thermal printer
-2. Set margins to **None** and page size to **80mm** (or the closest option)
-3. Disable headers/footers in the print settings
-
-### Chrome Tips
-
-- Go to `chrome://settings/printing` to set your default printer
-- For a kiosk setup, you can use Chrome's `--kiosk-printing` flag to auto-print without the dialog
-
----
-
-## 🔒 Roles & Permissions
-
-| Capability | Cashier | Manager | Owner |
-|---|:---:|:---:|:---:|
-| Take orders & accept payments | ✅ | ✅ | ❌ |
-| Edit/void orders (with manager PIN) | — | ✅ (authorizer) | ✅ (authorizer) |
-| Access Admin Console | ❌ | ❌ | ✅ |
-| Manage menu, staff, settings | ❌ | ❌ | ✅ |
-| View audit trail | ❌ | ❌ | ✅ |
-
-> **Note**: The Owner role is for administration only and cannot operate the till. Managers can sell and authorize corrections but cannot access the full admin console.
-
----
-
-## 📦 Deployment Tips
-
-### Run as a System Service (Linux)
-
-Create `/etc/systemd/system/tatsy.service`:
-
-```ini
-[Unit]
-Description=Tatsy POS Server
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/tatsy
-ExecStart=/opt/tatsy/posd
-Restart=always
-User=pos
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable tatsy
-sudo systemctl start tatsy
-```
-
-### Run on Windows Startup
-
-**Option A — Startup Folder (simplest):**
-1. Press `Win + R`, type `shell:startup`, press Enter
-2. Create a shortcut to `posd.exe` and place it in the folder that opens
-3. The POS server will start automatically every time Windows boots
-
-**Option B — Task Scheduler (runs without a visible window):**
-1. Open **Task Scheduler** → Create Basic Task
-2. Name it "Tatsy POS", trigger: "When the computer starts"
-3. Action: Start a Program → browse to `posd.exe`
-4. Set "Start in" to the folder containing `posd.exe`
-
-### Backup
-
-The entire state is in **one file**: `pos.db`. Back it up regularly:
-
-```bash
-# Linux / macOS
-cp pos.db pos-backup-$(date +%Y%m%d).db
-```
-
-```powershell
-# Windows (PowerShell)
-Copy-Item pos.db "pos-backup-$(Get-Date -Format yyyyMMdd).db"
-```
-
-### Network Access
-
-To access the till and customer display from other devices on the same Wi-Fi / LAN:
-
-**Linux:**
-```bash
-sudo firewall-cmd --add-port=8080/tcp --permanent
-sudo firewall-cmd --reload
-```
-
-**Windows:**
-- When you first run `posd.exe`, Windows Firewall will prompt you — click **"Allow access"**
-- If you missed the prompt: Control Panel → Windows Defender Firewall → Allow an app → Add `posd.exe`
-
----
-
-## 📄 License
-
-Private / Proprietary — Hifeh Tasty Kitchen.
+© Hifeh Tasty Kitchen
