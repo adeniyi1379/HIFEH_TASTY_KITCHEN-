@@ -8,37 +8,33 @@ Your restaurant's point of sale — take orders, print receipts, and track sales
 
 ---
 
-## 📦 What's Inside
+## ⚡ Quick Setup (Recommended)
 
-You only need **one file**: `posd.exe`. Everything is packed inside it.
+Just run the setup file — no extra software or installation tools needed:
 
-When you run it for the first time, it creates a `pos.db` file — this stores all your orders, menu, and staff data. **Do not delete this file.**
+1. **Double-click `HifehTastyKitchen_Setup.exe`**
+2. Choose where to install (or use the default `%LOCALAPPDATA%\HifehTastyKitchen`)
+3. Choose your options:
+   - ☑ **Desktop Shortcut** (adds a branded icon to your desktop)
+   - ☑ **Start Menu Shortcut**
+   - ☑ **Windows Firewall Rule** (enables customer display and other cashier terminals over local Wi-Fi)
+   - ☑ **Launch after install**
+4. Click **Install** — Chrome will automatically open to **`http://localhost:8080`**!
 
----
-
-## 🚀 How to Start
-
-1. **Double-click `posd.exe`**
-2. A black window opens — this means it's running. **Don't close it.**
-3. Open **Google Chrome** and go to: **`http://localhost:8080`**
-4. Enter your PIN to log in
-
-That's it — you're ready to sell!
-
-> If Windows asks "Do you want to allow this app?" — click **Yes / Allow access**.
+> **Portable Option:** If you prefer running without an installer, you can still just double-click `posd.exe` directly in any folder.
 
 ---
 
 ## 🔑 Default PINs
 
-| Who | PIN |
-|---|---|
-| **Owner** | `123456` |
-| **Manager Ada** | `234567` |
-| **Cashier Amaka** | `345678` |
-| **Cashier Tunde** | `456789` |
+| Who | PIN | Role & Access |
+|---|---|---|
+| **Owner** | `123456` | Full system control, financial audit trail, staff management |
+| **Manager Ada** | `234567` | Kitchen restock, shift sales, order edits/voids |
+| **Cashier Amaka** | `345678` | Clean till interface (take orders & accept cash) |
+| **Cashier Tunde** | `456789` | Clean till interface (take orders & accept cash) |
 
-⚠️ **Change these PINs** after your first login. Go to Admin Console → Staff & Workers.
+⚠️ **Change these PINs** after your first login in Admin Console → Staff & Workers.
 
 ---
 
@@ -46,69 +42,42 @@ That's it — you're ready to sell!
 
 You can show customers what they're ordering on a second screen (TV or tablet).
 
-1. When you start `posd.exe`, look at the black window — it shows a link like:
+1. When `posd.exe` starts, check the address shown (or use your PC's local IP address):
    ```
    http://192.168.1.50:8080/display
    ```
 2. Open that link on the TV or tablet browser
-3. It will mirror the order in real time
+3. It will mirror orders in real time via live Server-Sent Events (SSE)
 
-> The TV/tablet must be on the **same Wi-Fi** as the POS computer.
-
----
-
-## 🍽️ Taking Orders
-
-1. Log in with your PIN
-2. Pick **Dine-in** or **Takeaway**
-3. Tap on dishes to add them
-4. Use **+** / **−** to change quantities
-5. Press **"Show on display"** to show the customer
-6. Press **"Pay (cash)"** when the customer pays
-7. Choose to **print a receipt** or skip
+> The TV/tablet must be on the **same Wi-Fi or router network** as the POS computer.
 
 ---
 
-## 🖨️ Reprinting a Receipt
+## 🍽️ Taking Orders & In-Place Editing
 
-1. Click the **clock icon** (Recent) at the top
-2. Find the order
-3. Click **🖨️ Reprint**
+1. **New Order**:
+   - Log in with your Cashier PIN
+   - Pick **Dine-in** or **Takeaway**
+   - Tap dishes to add them, adjust quantities using **+** / **−**
+   - Tap **"Show on display"** to mirror to customer
+   - Click **"Pay (cash)"** and choose whether to print receipt
 
----
-
-## ✏️ Editing or Cancelling a Paid Order
-
-1. Click the **clock icon** (Recent)
-2. Click **"Edit Order"** or **"Void"**
-3. A manager or owner must enter their PIN and give a reason
-4. The change is recorded and cannot be erased
-
----
-
-## ⚙️ Admin Console (Owner Only)
-
-1. Log in as **Owner**
-2. Click **"Console"** at the top
-3. From here you can:
-   - View **today's sales** and reports
-   - **Add, edit, or remove dishes** from the menu
-   - **Upload photos** for dishes and your logo
-   - **Add or remove staff** and reset PINs
-   - Change **business name**, receipt text, and tax settings
-   - View the **audit trail** (who changed or voided what)
+2. **In-Place Order Editing**:
+   - If a manager reopens a paid order from Recent Orders, an **"EDITING"** badge appears on the till
+   - Cashiers or managers can add/remove items in place
+   - The button transforms into **"Save Changes 💾"**
+   - Receipts reprint with an explicit `*** UPDATED RECEIPT (EDITED) ***` header, and an `edited` log entry is recorded in the immutable audit trail
 
 ---
 
-## 📦 Real-Time Inventory & Stock
+## 📦 Global Real-Time Inventory & Stock
 
-Stock is **global across all cashiers** and updates live in real time:
+Stock is synchronized live across all cashiers and kitchen managers:
 
-- **Automatic depletion**: As soon as a cashier completes an order, the stock decreases.
-- **Out of stock protection**: When an item runs out (0 left), it immediately displays **"Sold Out"** on every till screen. If any cashier tries to tap it, an error pop-up warns that it is finished.
-- **Stock badges on till**: Cashiers can see how many portions or pieces remain directly on each dish card (e.g. `24 left`, `3 left`, `Sold Out`).
-- **Quick restock on till**: Click the **"Stock"** button at the top of the till to view all item stock levels and quick-add `+10` or `+25` (requires Manager PIN).
-- **Admin stock management**: In Admin Console → **Inventory & Stock**, the owner can view full stock levels, toggle tracking on/off, set exact stock, or add stock with one click.
+- **Automatic depletion**: Completed sales immediately deduct quantities from global inventory.
+- **Out-of-stock lock**: When an item reaches 0, all cashier screens display **"Sold Out"** and block additions.
+- **Decrement & Increment adjustments**: Kitchen managers have quick stock controls (`-10`, `-5`, `+10`, `+25`, `+50`, and `Set Stock`).
+- **Low stock indicators**: Dishes show live quantity badges (e.g. `12 left`, `Sold Out`) directly on the till cards.
 
 ---
 
@@ -117,57 +86,66 @@ Stock is **global across all cashiers** and updates live in real time:
 | What They Can Do | Cashier (Amaka / Tunde) | Manager (Ada) | Owner |
 |---|:---:|:---:|:---:|
 | **Take Orders & Accept Cash** | ✅ | ✅ | ❌ |
-| **Clean Till (No clutter)** | ✅ | — | — |
-| **View & Edit Recent Orders** | ❌ (hidden) | ✅ (direct) | ✅ |
-| **Restock Kitchen Inventory** | ❌ (hidden) | ✅ (direct) | ✅ |
+| **Clean Till Interface (No button clutter)** | ✅ | — | — |
+| **View Recent Orders & Reprint Receipts** | ❌ (hidden) | ✅ (direct) | ✅ |
+| **Edit or Void Existing Orders** | ❌ | ✅ (in-place) | ✅ |
+| **Restock Kitchen Inventory (+ / − / Set)** | ❌ (hidden) | ✅ (direct) | ✅ |
 | **Toggle Dish On/Off (Available/Unavailable)** | ❌ | ✅ | ✅ |
-| **View Shift Sales & Cashier Breakdown** | ❌ | ✅ (in Manager Dashboard) | ✅ |
+| **View Shift Sales & Cashier Breakdown** | ❌ | ✅ (Manager Hub) | ✅ |
 | **Manage Staff (Add/Remove Workers, Reset PINs)** | ❌ | ❌ | ✅ (Owner Console) |
 | **Change Store Settings, VAT, Logo** | ❌ | ❌ | ✅ (Owner Console) |
-| **View Permanent Audit Trail** | ❌ | ❌ | ✅ (Owner Console) |
+| **View Permanent Financial Audit Trail** | ❌ | ❌ | ✅ (Owner Console) |
 
 ---
 
-## 🖨️ Setting Up Your Printer
+## 🖨️ Setting Up Your Thermal Printer
 
-This works with **80mm thermal receipt printers** (the small ones restaurants use).
+Compatible with standard **80mm thermal receipt printers**:
 
-1. Install your printer on Windows normally
-2. When the print window appears in Chrome, select your thermal printer
-3. Set margins to **None**
-4. Untick "Headers and footers"
+1. Install your printer drivers on Windows normally
+2. In Google Chrome's print dialog:
+   - Select your thermal printer
+   - Set Margins to **None**
+   - Untick **Headers and footers**
+3. Print test receipt directly from the till
 
-**Tip:** In Chrome, you can set your thermal printer as the default so it prints faster.
+---
+
+## 🗑️ Uninstalling
+
+If installed using `HifehTastyKitchen_Setup.exe`:
+
+1. Open Windows **Settings → Apps → Installed apps** (or "Add or Remove Programs")
+2. Find **Hifeh Tasty Kitchen** and click **Uninstall**
+3. The uninstaller will ask:
+   - **Keep sales data?** You can safely preserve `pos.db` in case you reinstall later, or choose to delete everything.
+   - All shortcuts, firewall rules, and app executables are automatically removed.
 
 ---
 
 ## 💾 Backing Up Your Data
 
-All your data (orders, menu, staff) is in one file: **`pos.db`**
+All orders, inventory, dishes, and staff data reside in **`pos.db`** (stored in your installation folder).
 
-To back up, just **copy `pos.db`** to a USB drive or another folder. Do this regularly!
-
----
-
-## 🔄 Auto-Start When Computer Turns On
-
-1. Right-click `posd.exe` → **Create shortcut**
-2. Press `Win + R` on your keyboard
-3. Type `shell:startup` and press Enter
-4. Move the shortcut into the folder that opens
-5. Done — POS will start automatically every time you turn on the computer
+- To back up, simply copy **`pos.db`** to a USB flash drive or backup drive.
+- To restore, place `pos.db` back into the app folder before launching `posd.exe`.
 
 ---
 
-## ❓ Troubleshooting
+## 🛠️ Building From Source
 
-| Problem | Solution |
-|---|---|
-| Browser says "can't connect" | Make sure the black window (`posd.exe`) is still open |
-| Customer screen doesn't load | Make sure both devices are on the same Wi-Fi |
-| Forgot a PIN | Owner can reset any PIN in Admin Console → Staff & Workers |
-| Printer not working | Check it's installed in Windows Settings → Printers, then select it in Chrome's print dialog |
-| "Address already in use" error | Close any other `posd.exe` that might be running (check your taskbar) |
+Prerequisites: [Go 1.22+](https://golang.org)
+
+```bash
+# Build standalone Linux binary
+go build -o posd ./cmd/posd
+
+# Build standalone Windows binary
+GOOS=windows GOARCH=amd64 go build -o posd.exe ./cmd/posd
+
+# Build the complete Windows GUI installer with embedded icons
+./build_installer.sh
+```
 
 ---
 
