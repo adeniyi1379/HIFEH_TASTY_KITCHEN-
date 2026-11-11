@@ -23,6 +23,9 @@ var embeddedPOS []byte
 //go:embed embed/uninstall.exe
 var embeddedUninstaller []byte
 
+//go:embed embed/app.ico
+var embeddedIcon []byte
+
 // ══════════════════════════════════════════════════════════════════════
 // Windows API bindings
 // ══════════════════════════════════════════════════════════════════════
@@ -502,6 +505,10 @@ func doInstall() {
 		setStatus("Warning: Could not write uninstaller")
 	}
 
+	// Write App Icon
+	iconPath := filepath.Join(folder, "app.ico")
+	_ = os.WriteFile(iconPath, embeddedIcon, 0644)
+
 	// Write README
 	setStatus("Writing documentation...")
 	readme := "# Hifeh Tasty Kitchen - POS System\r\n\r\n" +
@@ -525,7 +532,7 @@ func doInstall() {
 		setStatus("Creating Desktop shortcut...")
 		createShortcut(
 			filepath.Join(os.Getenv("USERPROFILE"), "Desktop", appName+".lnk"),
-			destExe, folder, appName+" POS System",
+			destExe, folder, appName+" POS System", iconPath,
 		)
 	}
 
@@ -536,12 +543,12 @@ func doInstall() {
 		os.MkdirAll(smDir, 0755)
 		createShortcut(
 			filepath.Join(smDir, appName+".lnk"),
-			destExe, folder, appName+" POS System",
+			destExe, folder, appName+" POS System", iconPath,
 		)
 		// Also add an uninstall shortcut
 		createShortcut(
 			filepath.Join(smDir, "Uninstall "+appName+".lnk"),
-			destUninstall, folder, "Uninstall "+appName,
+			destUninstall, folder, "Uninstall "+appName, iconPath,
 		)
 	}
 
@@ -580,15 +587,16 @@ func doInstall() {
 	procDestroyWindow.Call(hWndMain)
 }
 
-func createShortcut(lnkPath, targetExe, workDir, description string) {
+func createShortcut(lnkPath, targetExe, workDir, description, iconPath string) {
 	script := fmt.Sprintf(
 		`$ws = New-Object -ComObject WScript.Shell; `+
 			`$s = $ws.CreateShortcut('%s'); `+
 			`$s.TargetPath = '%s'; `+
 			`$s.WorkingDirectory = '%s'; `+
 			`$s.Description = '%s'; `+
+			`$s.IconLocation = '%s,0'; `+
 			`$s.Save()`,
-		lnkPath, targetExe, workDir, description,
+		lnkPath, targetExe, workDir, description, iconPath,
 	)
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}

@@ -97,6 +97,7 @@ func main() {
 	// Remove app files
 	os.Remove(filepath.Join(installDir, "posd.exe"))
 	os.Remove(filepath.Join(installDir, "README.txt"))
+	os.Remove(filepath.Join(installDir, "app.ico"))
 
 	if deleteData {
 		os.Remove(filepath.Join(installDir, "pos.db"))
