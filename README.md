@@ -100,6 +100,34 @@ You can show customers what they're ordering on a second screen (TV or tablet).
 
 ---
 
+## 📦 Real-Time Inventory & Stock
+
+Stock is **global across all cashiers** and updates live in real time:
+
+- **Automatic depletion**: As soon as a cashier completes an order, the stock decreases.
+- **Out of stock protection**: When an item runs out (0 left), it immediately displays **"Sold Out"** on every till screen. If any cashier tries to tap it, an error pop-up warns that it is finished.
+- **Stock badges on till**: Cashiers can see how many portions or pieces remain directly on each dish card (e.g. `24 left`, `3 left`, `Sold Out`).
+- **Quick restock on till**: Click the **"Stock"** button at the top of the till to view all item stock levels and quick-add `+10` or `+25` (requires Manager PIN).
+- **Admin stock management**: In Admin Console → **Inventory & Stock**, the owner can view full stock levels, toggle tracking on/off, set exact stock, or add stock with one click.
+
+---
+
+## 👥 Roles & Capabilities
+
+| What They Can Do | Cashier (Amaka / Tunde) | Manager (Ada) | Owner |
+|---|:---:|:---:|:---:|
+| **Take Orders & Accept Cash** | ✅ | ✅ | ❌ |
+| **Clean Till (No clutter)** | ✅ | — | — |
+| **View & Edit Recent Orders** | ❌ (hidden) | ✅ (direct) | ✅ |
+| **Restock Kitchen Inventory** | ❌ (hidden) | ✅ (direct) | ✅ |
+| **Toggle Dish On/Off (Available/Unavailable)** | ❌ | ✅ | ✅ |
+| **View Shift Sales & Cashier Breakdown** | ❌ | ✅ (in Manager Dashboard) | ✅ |
+| **Manage Staff (Add/Remove Workers, Reset PINs)** | ❌ | ❌ | ✅ (Owner Console) |
+| **Change Store Settings, VAT, Logo** | ❌ | ❌ | ✅ (Owner Console) |
+| **View Permanent Audit Trail** | ❌ | ❌ | ✅ (Owner Console) |
+
+---
+
 ## 🖨️ Setting Up Your Printer
 
 This works with **80mm thermal receipt printers** (the small ones restaurants use).

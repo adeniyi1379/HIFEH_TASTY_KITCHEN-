@@ -35,6 +35,7 @@ type Order struct {
 	Status       string      `json:"status"`
 	UserID       string      `json:"user_id"`
 	UserName     string      `json:"user_name"`
+	IsEdit       bool        `json:"is_edit"`
 	SubtotalKobo int64       `json:"subtotal_kobo"`
 	VATKobo      int64       `json:"vat_kobo"`
 	TotalKobo    int64       `json:"total_kobo"`
@@ -68,8 +69,48 @@ func GetOrderByID(ctx context.Context, db *sql.DB, id string) (*Order, error) {
 }
 
 func ReopenOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error) {
-	res, err := db.ExecContext(ctx,
-		`UPDATE orders SET status = 'open', updated_at = datetime('now') WHERE id = ?`, orderID)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var prevStatus string
+	err = tx.QueryRowContext(ctx, `SELECT status FROM orders WHERE id = ?`, orderID).Scan(&prevStatus)
+	if err != nil {
+		return nil, err
+	}
+
+	// If order was paid, restore the deducted inventory
+	if prevStatus == "paid" {
+		rows, err := tx.QueryContext(ctx, `SELECT item_id, quantity FROM order_lines WHERE order_id = ?`, orderID)
+		if err != nil {
+			return nil, err
+		}
+		type lineQty struct {
+			itemID string
+			qty    int64
+		}
+		var lines []lineQty
+		for rows.Next() {
+			var l lineQty
+			if err := rows.Scan(&l.itemID, &l.qty); err == nil {
+				lines = append(lines, l)
+			}
+		}
+		rows.Close()
+
+		for _, l := range lines {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE items SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ? AND track_inventory = 1`,
+				l.qty, l.itemID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE orders SET status = 'open', is_edit = 1, updated_at = datetime('now') WHERE id = ?`, orderID)
 	if err != nil {
 		return nil, err
 	}
@@ -77,11 +118,58 @@ func ReopenOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error
 	if n == 0 {
 		return nil, errors.New("order not found")
 	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return getOrder(ctx, db, orderID)
 }
 
 func VoidOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error) {
-	res, err := db.ExecContext(ctx,
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var prevStatus string
+	err = tx.QueryRowContext(ctx, `SELECT status FROM orders WHERE id = ?`, orderID).Scan(&prevStatus)
+	if err != nil {
+		return nil, err
+	}
+	if prevStatus == "void" {
+		return nil, errors.New("order is already void")
+	}
+
+	// If order was paid, restore the deducted inventory
+	if prevStatus == "paid" {
+		rows, err := tx.QueryContext(ctx, `SELECT item_id, quantity FROM order_lines WHERE order_id = ?`, orderID)
+		if err != nil {
+			return nil, err
+		}
+		type lineQty struct {
+			itemID string
+			qty    int64
+		}
+		var lines []lineQty
+		for rows.Next() {
+			var l lineQty
+			if err := rows.Scan(&l.itemID, &l.qty); err == nil {
+				lines = append(lines, l)
+			}
+		}
+		rows.Close()
+
+		for _, l := range lines {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE items SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ? AND track_inventory = 1`,
+				l.qty, l.itemID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	res, err := tx.ExecContext(ctx,
 		`UPDATE orders SET status = 'void', updated_at = datetime('now') WHERE id = ?`, orderID)
 	if err != nil {
 		return nil, err
@@ -89,6 +177,10 @@ func VoidOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error) 
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return nil, errors.New("order not found")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return getOrder(ctx, db, orderID)
 }
@@ -126,10 +218,11 @@ func ListRecentOrders(ctx context.Context, db *sql.DB, limit int) ([]Order, erro
 func getOrder(ctx context.Context, q queryer, id string) (*Order, error) {
 	o := &Order{}
 	var tableNo, userID, userName sql.NullString
+	var isEdit int
 	err := q.QueryRowContext(ctx,
-		`SELECT o.id, o.order_no, o.type, o.table_no, o.status, o.user_id, u.name, o.subtotal_kobo, o.vat_kobo, o.total_kobo
+		`SELECT o.id, o.order_no, o.type, o.table_no, o.status, o.user_id, u.name, o.is_edit, o.subtotal_kobo, o.vat_kobo, o.total_kobo
 		 FROM orders o LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ?`, id,
-	).Scan(&o.ID, &o.OrderNo, &o.Type, &tableNo, &o.Status, &userID, &userName, &o.SubtotalKobo, &o.VATKobo, &o.TotalKobo)
+	).Scan(&o.ID, &o.OrderNo, &o.Type, &tableNo, &o.Status, &userID, &userName, &isEdit, &o.SubtotalKobo, &o.VATKobo, &o.TotalKobo)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +231,7 @@ func getOrder(ctx context.Context, q queryer, id string) (*Order, error) {
 	}
 	o.UserID = userID.String
 	o.UserName = userName.String
+	o.IsEdit = isEdit == 1
 	rows, err := q.QueryContext(ctx,
 		`SELECT id, item_id, name_snapshot, unit_label, quantity, unit_price_kobo, line_total_kobo
 		 FROM order_lines WHERE order_id = ? ORDER BY created_at`, id)
@@ -171,19 +265,34 @@ func AddItem(ctx context.Context, db *sql.DB, itemID, userID string) (*Order, er
 	}
 
 	var item Item
+	var trackInv int
+	var stockQty int64
 	err = tx.QueryRowContext(ctx,
-		`SELECT id, category_id, name, unit_type, unit_label, price_per_unit_kobo FROM items WHERE id = ? AND active = 1`, itemID,
-	).Scan(&item.ID, &item.CategoryID, &item.Name, &item.UnitType, &item.UnitLabel, &item.PricePerUnitKobo)
+		`SELECT id, category_id, name, unit_type, unit_label, price_per_unit_kobo, track_inventory, stock_quantity 
+		 FROM items WHERE id = ? AND active = 1`, itemID,
+	).Scan(&item.ID, &item.CategoryID, &item.Name, &item.UnitType, &item.UnitLabel, &item.PricePerUnitKobo, &trackInv, &stockQty)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("unknown item %q", itemID)
 	}
 	if err != nil {
 		return nil, err
 	}
+	item.TrackInventory = trackInv == 1
+	item.StockQuantity = stockQty
+
+	if item.TrackInventory && item.StockQuantity <= 0 {
+		return nil, fmt.Errorf("Out of stock: %s is finished", item.Name)
+	}
 
 	var lineID string
+	var existingQty int64
 	err = tx.QueryRowContext(ctx,
-		`SELECT id FROM order_lines WHERE order_id = ? AND item_id = ?`, orderID, itemID).Scan(&lineID)
+		`SELECT id, quantity FROM order_lines WHERE order_id = ? AND item_id = ?`, orderID, itemID).Scan(&lineID, &existingQty)
+
+	if item.TrackInventory && (existingQty+1) > item.StockQuantity {
+		return nil, fmt.Errorf("Cannot add more: only %d %s(s) remaining in stock for %s", item.StockQuantity, item.UnitLabel, item.Name)
+	}
+
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		_, err = tx.ExecContext(ctx,
@@ -216,13 +325,28 @@ func ChangeLineQty(ctx context.Context, db *sql.DB, lineID string, delta int64) 
 	}
 	defer tx.Rollback()
 
-	var orderID string
+	var orderID, itemID string
 	var qty int64
-	err = tx.QueryRowContext(ctx, `SELECT order_id, quantity FROM order_lines WHERE id = ?`, lineID).Scan(&orderID, &qty)
+	err = tx.QueryRowContext(ctx, `SELECT order_id, item_id, quantity FROM order_lines WHERE id = ?`, lineID).Scan(&orderID, &itemID, &qty)
 	if err != nil {
 		return nil, err
 	}
 	next := qty + delta
+
+	if delta > 0 {
+		var name, unitLabel string
+		var trackInv int
+		var stockQty int64
+		err = tx.QueryRowContext(ctx,
+			`SELECT name, unit_label, track_inventory, stock_quantity FROM items WHERE id = ?`, itemID,
+		).Scan(&name, &unitLabel, &trackInv, &stockQty)
+		if err == nil && trackInv == 1 {
+			if next > stockQty {
+				return nil, fmt.Errorf("Cannot add more: only %d %s(s) remaining in stock for %s", stockQty, unitLabel, name)
+			}
+		}
+	}
+
 	if next <= 0 {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM order_lines WHERE id = ?`, lineID); err != nil {
 			return nil, err
@@ -287,8 +411,72 @@ func SendToDisplay(ctx context.Context, db *sql.DB, orderID string) (*Order, err
 }
 
 func PayOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error) {
-	if _, err := db.ExecContext(ctx,
-		`UPDATE orders SET status = 'paid', updated_at = datetime('now') WHERE id = ?`, orderID); err != nil {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var status string
+	err = tx.QueryRowContext(ctx, `SELECT status FROM orders WHERE id = ?`, orderID).Scan(&status)
+	if err != nil {
+		return nil, err
+	}
+	if status == "paid" {
+		return nil, errors.New("order is already paid")
+	}
+
+	// Fetch lines
+	rows, err := tx.QueryContext(ctx, `SELECT item_id, quantity FROM order_lines WHERE order_id = ?`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	type itemQty struct {
+		itemID string
+		qty    int64
+	}
+	var lines []itemQty
+	for rows.Next() {
+		var l itemQty
+		if err := rows.Scan(&l.itemID, &l.qty); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		lines = append(lines, l)
+	}
+	rows.Close()
+
+	// Check stock
+	for _, l := range lines {
+		var name string
+		var trackInv int
+		var stockQty int64
+		err := tx.QueryRowContext(ctx,
+			`SELECT name, track_inventory, stock_quantity FROM items WHERE id = ?`, l.itemID,
+		).Scan(&name, &trackInv, &stockQty)
+		if err == nil && trackInv == 1 {
+			if stockQty < l.qty {
+				return nil, fmt.Errorf("Cannot complete payment: %s is out of stock (only %d left)", name, stockQty)
+			}
+		}
+	}
+
+	// Deduct stock for tracked items
+	for _, l := range lines {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE items SET stock_quantity = MAX(0, stock_quantity - ?), updated_at = datetime('now') WHERE id = ? AND track_inventory = 1`,
+			l.qty, l.itemID,
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE orders SET status = 'paid', is_edit = 0, updated_at = datetime('now') WHERE id = ?`, orderID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return getOrder(ctx, db, orderID)
@@ -296,7 +484,7 @@ func PayOrder(ctx context.Context, db *sql.DB, orderID string) (*Order, error) {
 
 // ClearOrder deletes an unpaid order (cashier starts over).
 func ClearOrder(ctx context.Context, db *sql.DB, orderID string) error {
-	_, err := db.ExecContext(ctx, `DELETE FROM orders WHERE id = ? AND status != 'paid'`, orderID)
+	_, err := db.ExecContext(ctx, `DELETE FROM orders WHERE id = ? AND status != 'paid' AND is_edit = 0`, orderID)
 	return err
 }
 

@@ -87,6 +87,40 @@ function renderOrder(o) {
   $('send').disabled = !hasItems;
   $('clear').disabled = !hasItems && !o;
 
+  const isEdit = !!(o && o.is_edit);
+  const editBadge = $('order-edit-badge');
+  if (editBadge) editBadge.hidden = !isEdit;
+
+  const payBtn = $('pay');
+  const payLabel = $('pay-label');
+  const payIcon = $('pay-icon');
+  const clearLabel = $('clear-label');
+
+  if (isEdit) {
+    if (payBtn) payBtn.classList.add('btn-action-save');
+    if (payLabel) payLabel.textContent = 'Save Changes';
+    if (payIcon) {
+      payIcon.innerHTML = `
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+        <polyline points="7 3 7 8 15 8"></polyline>
+      `;
+    }
+    if (clearLabel) clearLabel.textContent = 'Cancel Edit';
+  } else {
+    if (payBtn) payBtn.classList.remove('btn-action-save');
+    if (payLabel) payLabel.textContent = 'Pay (cash)';
+    if (payIcon) {
+      payIcon.innerHTML = `
+        <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+        <circle cx="12" cy="12" r="2"></circle>
+        <line x1="6" y1="12" x2="6.01" y2="12"></line>
+        <line x1="18" y1="12" x2="18.01" y2="12"></line>
+      `;
+    }
+    if (clearLabel) clearLabel.textContent = 'Clear';
+  }
+
   if (o && o.type) {
     orderType = o.type;
     document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.type === orderType));
@@ -120,15 +154,52 @@ function showOrderConfirmation(o) {
   $('modal-item-count').textContent = `${totalItems} item${totalItems === 1 ? '' : 's'}`;
   $('modal-total-amount').textContent = naira(o.total_kobo);
 
-  populateReceipt(o);
+  populateReceipt(o, false);
   $('order-modal').hidden = false;
 }
 
 function hideOrderConfirmation() {
-  $('order-modal').hidden = true;
+  if ($('order-modal')) $('order-modal').hidden = true;
 }
 
-function populateReceipt(o) {
+function showEditConfirmation(o) {
+  lastPaidOrder = o;
+  const noEl = $('edit-modal-order-no');
+  if (noEl) noEl.textContent = `Order #${o.order_no}`;
+
+  const isDineIn = o.type === 'dine_in';
+  const typeEl = $('edit-modal-order-type');
+  if (typeEl) typeEl.textContent = isDineIn ? 'Dine-in' : 'Takeaway';
+
+  const tableRow = $('edit-modal-table-row');
+  const tableNoEl = $('edit-modal-table-no');
+  if (tableRow && tableNoEl) {
+    if (isDineIn && o.table_no) {
+      tableNoEl.textContent = `Table ${o.table_no}`;
+      tableRow.hidden = false;
+    } else {
+      tableRow.hidden = true;
+    }
+  }
+
+  let totalItems = 0;
+  if (o.lines) {
+    for (const l of o.lines) totalItems += Number(l.quantity);
+  }
+  const itemCountEl = $('edit-modal-item-count');
+  if (itemCountEl) itemCountEl.textContent = `${totalItems} item${totalItems === 1 ? '' : 's'}`;
+  const totalEl = $('edit-modal-total-amount');
+  if (totalEl) totalEl.textContent = naira(o.total_kobo);
+
+  populateReceipt(o, true);
+  if ($('order-edit-modal')) $('order-edit-modal').hidden = false;
+}
+
+function hideEditConfirmation() {
+  if ($('order-edit-modal')) $('order-edit-modal').hidden = true;
+}
+
+function populateReceipt(o, isEdit) {
   const area = $('receipt-print-area');
   if (!area || !o) return;
 
@@ -139,6 +210,11 @@ function populateReceipt(o) {
   const orderTypeStr = o.type === 'dine_in'
     ? `DINE-IN ${o.table_no ? '(TABLE ' + o.table_no + ')' : ''}`
     : 'TAKEAWAY';
+
+  const editCallout = isEdit ? `
+    <div style="font-weight:900;text-align:center;padding:4px 0;font-size:0.92rem;letter-spacing:1px;color:#000;">
+      *** UPDATED RECEIPT (EDITED) ***
+    </div>` : '';
 
   let linesHtml = '';
   if (o.lines) {
@@ -163,6 +239,8 @@ function populateReceipt(o) {
       <div class="rcpt-tagline">Fresh jollof, fried rice &amp; more</div>
     </div>
 
+    ${editCallout}
+
     <div class="rcpt-divider-star">********************************</div>
 
     <div class="rcpt-order-callout">
@@ -176,7 +254,7 @@ function populateReceipt(o) {
       <div><span>Date:</span> <span>${dateStr} ${timeStr}</span></div>
       <div><span>Terminal:</span> <span>Terminal A · Till 1</span></div>
       <div><span>Cashier:</span> <span>${o.user_name || 'Amaka'}</span></div>
-      <div><span>Payment:</span> <span>CASH</span></div>
+      <div><span>Payment:</span> <span>${isEdit ? 'EDITED / SAVED' : 'CASH'}</span></div>
     </div>
 
     <div class="rcpt-divider-dashed">--------------------------------</div>
@@ -215,31 +293,82 @@ function populateReceipt(o) {
 }
 
 // Modal events
-$('modal-done-btn').addEventListener('click', () => {
-  hideOrderConfirmation();
-  startNewOrder();
-});
-
-$('modal-print-btn').addEventListener('click', () => {
-  if (lastPaidOrder) {
-    populateReceipt(lastPaidOrder);
-  }
-  // Small delay so receipt DOM is painted before print dialog opens
-  setTimeout(() => {
-    window.print();
-    // After print dialog, close modal and start fresh
-    setTimeout(() => {
-      hideOrderConfirmation();
-      startNewOrder();
-    }, 400);
-  }, 80);
-});
-
-// Close modal when clicking outside card
-$('order-modal').addEventListener('click', (e) => {
-  if (e.target === $('order-modal')) {
+if ($('modal-done-btn')) {
+  $('modal-done-btn').addEventListener('click', () => {
     hideOrderConfirmation();
     startNewOrder();
+  });
+}
+
+if ($('modal-print-btn')) {
+  $('modal-print-btn').addEventListener('click', () => {
+    if (lastPaidOrder) {
+      populateReceipt(lastPaidOrder, false);
+    }
+    // Small delay so receipt DOM is painted before print dialog opens
+    setTimeout(() => {
+      window.print();
+      // After print dialog, close modal and start fresh
+      setTimeout(() => {
+        hideOrderConfirmation();
+        startNewOrder();
+      }, 400);
+    }, 80);
+  });
+}
+
+// Close modal when clicking outside card
+if ($('order-modal')) {
+  $('order-modal').addEventListener('click', (e) => {
+    if (e.target === $('order-modal')) {
+      hideOrderConfirmation();
+      startNewOrder();
+    }
+  });
+}
+
+// Edit Modal events
+if ($('edit-modal-done-btn')) {
+  $('edit-modal-done-btn').addEventListener('click', () => {
+    hideEditConfirmation();
+    startNewOrder();
+  });
+}
+
+if ($('edit-modal-print-btn')) {
+  $('edit-modal-print-btn').addEventListener('click', () => {
+    if (lastPaidOrder) {
+      populateReceipt(lastPaidOrder, true);
+    }
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        hideEditConfirmation();
+        startNewOrder();
+      }, 400);
+    }, 80);
+  });
+}
+
+if ($('order-edit-modal')) {
+  $('order-edit-modal').addEventListener('click', (e) => {
+    if (e.target === $('order-edit-modal')) {
+      hideEditConfirmation();
+      startNewOrder();
+    }
+  });
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if ($('order-modal') && !$('order-modal').hidden) {
+      hideOrderConfirmation();
+      startNewOrder();
+    }
+    if ($('order-edit-modal') && !$('order-edit-modal').hidden) {
+      hideEditConfirmation();
+      startNewOrder();
+    }
   }
 });
 
@@ -254,6 +383,10 @@ async function startNewOrder() {
 $('item-grid').addEventListener('click', async (e) => {
   const card = e.target.closest('.item-card');
   if (!card) return;
+  if (card.dataset.trackInventory === 'true' && parseInt(card.dataset.stock, 10) <= 0) {
+    toast(`Out of stock: ${card.dataset.name} is finished!`);
+    return;
+  }
   const o = await post('/api/order/items', { item_id: card.dataset.item });
   if (o) renderOrder(o);
 });
@@ -307,6 +440,14 @@ $('send').addEventListener('click', async () => {
 });
 
 $('pay').addEventListener('click', async () => {
+  if (currentOrder && currentOrder.is_edit) {
+    const o = await post('/api/order/save');
+    if (o) {
+      showEditConfirmation(o);
+      renderOrder(null);
+    }
+    return;
+  }
   const o = await post('/api/order/pay');
   if (o) {
     showOrderConfirmation(o);
@@ -315,6 +456,11 @@ $('pay').addEventListener('click', async () => {
 });
 
 $('clear').addEventListener('click', async () => {
+  if (currentOrder && currentOrder.is_edit) {
+    if (!confirm(`Cancel editing Order #${currentOrder.order_no}? Any unsaved changes will be discarded.`)) {
+      return;
+    }
+  }
   await post('/api/order/clear');
   renderOrder(null);
 });
@@ -332,6 +478,49 @@ es.addEventListener('order', (e) => {
   const o = JSON.parse(e.data);
   if (!o) renderOrder(null);
 });
+es.addEventListener('inventory', (e) => {
+  try {
+    const items = JSON.parse(e.data);
+    updateInventoryBadges(items);
+    if (tillInventoryModal && !tillInventoryModal.hidden) {
+      renderTillInventory(items);
+    }
+  } catch (err) {}
+});
+
+function updateInventoryBadges(items) {
+  if (!Array.isArray(items)) return;
+  items.forEach((it) => {
+    const card = document.querySelector(`.item-card[data-item="${it.id}"]`);
+    if (!card) return;
+    card.dataset.trackInventory = it.track_inventory ? 'true' : 'false';
+    card.dataset.stock = it.stock_quantity;
+
+    const existingBadge = card.querySelector('.stock-badge');
+    if (existingBadge) existingBadge.remove();
+
+    if (it.track_inventory) {
+      const badge = document.createElement('span');
+      badge.className = 'stock-badge';
+      if (it.stock_quantity <= 0) {
+        badge.classList.add('stock-empty');
+        badge.textContent = 'Sold Out';
+        card.classList.add('is-out-of-stock');
+      } else if (it.stock_quantity <= 5) {
+        badge.classList.add('stock-low');
+        badge.textContent = `${it.stock_quantity} left`;
+        card.classList.remove('is-out-of-stock');
+      } else {
+        badge.classList.add('stock-ok');
+        badge.textContent = `${it.stock_quantity} left`;
+        card.classList.remove('is-out-of-stock');
+      }
+      card.prepend(badge);
+    } else {
+      card.classList.remove('is-out-of-stock');
+    }
+  });
+}
 
 // Live clock update
 function updateClock() {
@@ -476,14 +665,25 @@ async function reprintReceipt(orderId, orderNo) {
 }
 
 function promptManagerAuth(orderId, orderNo, action) {
+  const isManager = document.body.dataset.role === 'manager' || document.body.dataset.role === 'owner';
   $('auth-order-id').value = orderId;
   $('auth-action').value = action;
   $('auth-order-label').textContent = `${action === 'reopen' ? 'Editing' : 'Voiding'} Order #${orderNo}`;
-  $('btn-submit-auth').textContent = action === 'reopen' ? 'Authorize & Edit Order' : 'Authorize & Void Order';
+  $('btn-submit-auth').textContent = action === 'reopen' ? 'Confirm & Edit Order' : 'Confirm & Void Order';
   $('manager-auth-pin').value = '';
   $('manager-auth-reason').value = '';
+
+  const pinGroup = $('manager-auth-pin').closest('.form-group');
+  if (isManager) {
+    if (pinGroup) pinGroup.style.display = 'none';
+    $('manager-auth-pin').removeAttribute('required');
+    $('manager-auth-reason').focus();
+  } else {
+    if (pinGroup) pinGroup.style.display = 'block';
+    $('manager-auth-pin').setAttribute('required', 'required');
+    $('manager-auth-pin').focus();
+  }
   managerAuthModal.hidden = false;
-  $('manager-auth-pin').focus();
 }
 
 if ($('manager-auth-form')) {
@@ -509,7 +709,8 @@ if ($('manager-auth-form')) {
 
       const order = await res.json();
       managerAuthModal.hidden = true;
-      recentOrdersModal.hidden = true;
+      if (recentOrdersModal) recentOrdersModal.hidden = true;
+      if (managerHubModal) managerHubModal.hidden = true;
 
       if (action === 'reopen') {
         renderOrder(order);
@@ -520,6 +721,348 @@ if ($('manager-auth-form')) {
       }
     } catch (err) {
       alert('Request error: ' + err.message);
+    }
+  });
+}
+
+// ---- Till Inventory Modal ----
+
+const tillInventoryModal = $('till-inventory-modal');
+
+if ($('btn-till-inventory')) {
+  $('btn-till-inventory').addEventListener('click', async () => {
+    tillInventoryModal.hidden = false;
+    await loadTillInventory();
+  });
+}
+if ($('close-till-inventory')) {
+  $('close-till-inventory').addEventListener('click', () => { tillInventoryModal.hidden = true; });
+}
+if ($('done-till-inventory')) {
+  $('done-till-inventory').addEventListener('click', () => { tillInventoryModal.hidden = true; });
+}
+
+async function loadTillInventory() {
+  const container = $('till-inventory-list');
+  if (!container) return;
+  container.innerHTML = '<p class="muted small">Loading inventory...</p>';
+  try {
+    const res = await fetch('/api/inventory');
+    if (!res.ok) throw new Error('Failed to load inventory');
+    const items = await res.json();
+    renderTillInventory(items);
+  } catch (err) {
+    container.innerHTML = `<p class="error small">${err.message}</p>`;
+  }
+}
+
+function renderTillInventory(items) {
+  const container = $('till-inventory-list');
+  if (!container) return;
+  if (!items || items.length === 0) {
+    container.innerHTML = '<p class="muted small">No items found.</p>';
+    return;
+  }
+  container.innerHTML = '';
+  items.forEach((it) => {
+    const card = document.createElement('div');
+    card.style = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:12px;';
+    
+    let stockPill = '<span class="stock-pill untracked">Unlimited</span>';
+    if (it.track_inventory) {
+      if (it.stock_quantity <= 0) {
+        stockPill = '<span class="stock-pill out-of-stock">Finished (0)</span>';
+      } else if (it.stock_quantity <= 5) {
+        stockPill = `<span class="stock-pill low-stock">${it.stock_quantity} left</span>`;
+      } else {
+        stockPill = `<span class="stock-pill in-stock">${it.stock_quantity} left</span>`;
+      }
+    }
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+        <img src="/static/images/${it.id}.png" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';" style="width:36px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0;">
+        <div style="min-width:0;">
+          <strong style="font-size:0.92rem;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${it.name}</strong>
+          <span class="muted small">per ${it.unit_label}</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+        ${stockPill}
+        <button class="btn-restock-sm btn-sub btn-till-restock" data-id="${it.id}" data-name="${it.name}" data-delta="-10" title="Reduce 10">−10</button>
+        <button class="btn-restock-sm btn-sub btn-till-restock" data-id="${it.id}" data-name="${it.name}" data-delta="-5" title="Reduce 5">−5</button>
+        <button class="btn-restock-sm btn-add btn-till-restock" data-id="${it.id}" data-name="${it.name}" data-delta="10" title="Add 10">+10</button>
+        <button class="btn-restock-sm btn-add btn-till-restock" data-id="${it.id}" data-name="${it.name}" data-delta="25" title="Add 25">+25</button>
+        <button class="btn-sm btn-till-set-stock" data-id="${it.id}" data-name="${it.name}" data-stock="${it.stock_quantity}">Set Stock</button>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+if ($('till-inventory-list')) {
+  $('till-inventory-list').addEventListener('click', async (e) => {
+    const isManager = document.body.dataset.role === 'manager' || document.body.dataset.role === 'owner';
+
+    const restockBtn = e.target.closest('.btn-till-restock');
+    if (restockBtn) {
+      const { id, name, delta } = restockBtn.dataset;
+      const d = parseInt(delta, 10);
+      let pin = '';
+      if (!isManager) {
+        pin = prompt(`Manager PIN required to ${d < 0 ? 'reduce ' + d : 'add +' + d} to ${name}:`);
+        if (!pin) return;
+      }
+      try {
+        const res = await fetch(`/api/inventory/${id}/restock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            delta: d,
+            manager_pin: pin,
+            reason: d < 0 ? `Till reduced stock ${d}` : `Till quick restock +${d}`
+          })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          alert('Stock adjustment failed: ' + text);
+          return;
+        }
+        toast(`${d < 0 ? 'Reduced ' + d : 'Added +' + d} for ${name}`);
+        await loadTillInventory();
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+      return;
+    }
+
+    const setBtn = e.target.closest('.btn-till-set-stock');
+    if (setBtn) {
+      const { id, name, stock } = setBtn.dataset;
+      let pin = '';
+      if (!isManager) {
+        pin = prompt(`Manager PIN required to set stock for ${name}:`);
+        if (!pin) return;
+      }
+      const val = prompt(`Set exact stock count for ${name}:`, stock || '0');
+      if (val === null) return;
+      const num = parseInt(val, 10);
+      if (isNaN(num) || num < 0) {
+        alert('Enter a valid non-negative number');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/inventory/${id}/restock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            stock_quantity: num,
+            manager_pin: pin,
+            reason: `Till set stock to ${num}`
+          })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          alert('Failed to set stock: ' + text);
+          return;
+        }
+        toast(`Stock set to ${num} for ${name}`);
+        await loadTillInventory();
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+      return;
+    }
+  });
+}
+
+// ---- Manager Shift Hub Dashboard ----
+
+const managerHubModal = $('manager-hub-modal');
+
+if ($('btn-open-manager-hub')) {
+  $('btn-open-manager-hub').addEventListener('click', () => {
+    if (managerHubModal) {
+      managerHubModal.hidden = false;
+      loadHubRecentOrders();
+    }
+  });
+}
+if ($('close-manager-hub')) {
+  $('close-manager-hub').addEventListener('click', () => { if (managerHubModal) managerHubModal.hidden = true; });
+}
+if ($('done-manager-hub')) {
+  $('done-manager-hub').addEventListener('click', () => { if (managerHubModal) managerHubModal.hidden = true; });
+}
+
+// Manager Hub Tabs
+if ($('hub-tabs')) {
+  $('hub-tabs').addEventListener('click', (e) => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    document.querySelectorAll('#hub-tabs .tab').forEach((t) => t.classList.toggle('active', t === tab));
+    const target = tab.dataset.hubTab;
+    document.querySelectorAll('.hub-tab-pane').forEach((p) => {
+      p.hidden = p.id !== target;
+    });
+    if (target === 'hub-recent') loadHubRecentOrders();
+  });
+}
+
+// Quick restock inside Manager Hub
+document.querySelectorAll('.btn-hub-restock').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const { id, name, delta } = btn.dataset;
+    const d = parseInt(delta, 10);
+    const reason = d < 0 ? `Manager hub reduced stock ${d}` : `Manager hub restock +${d}`;
+    try {
+      const res = await fetch(`/api/inventory/${id}/restock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta: d, reason: reason })
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        alert('Stock adjustment failed: ' + text);
+        return;
+      }
+      toast(`${d < 0 ? 'Reduced ' + d : 'Added +' + d} for ${name}`);
+      window.location.reload();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+});
+
+document.querySelectorAll('.btn-hub-set-stock').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const { id, name, stock } = btn.dataset;
+    const val = prompt(`Set exact stock count for ${name}:`, stock || '0');
+    if (val === null) return;
+    const num = parseInt(val, 10);
+    if (isNaN(num) || num < 0) {
+      alert('Enter a valid non-negative number');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/inventory/${id}/restock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock_quantity: num, reason: `Manager set stock to ${num}` })
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        alert('Failed: ' + text);
+        return;
+      }
+      toast(`Stock set to ${num} for ${name}`);
+      window.location.reload();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+});
+
+// Toggle dish active inside Manager Hub
+document.querySelectorAll('.btn-hub-toggle-dish').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const { id, active } = btn.dataset;
+    const next = active !== 'true';
+    try {
+      const res = await fetch(`/api/admin/menu/items/${id}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: next })
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        alert('Failed: ' + text);
+        return;
+      }
+      toast(`Dish updated`);
+      window.location.reload();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+});
+
+if ($('btn-refresh-hub-stock')) {
+  $('btn-refresh-hub-stock').addEventListener('click', () => window.location.reload());
+}
+if ($('btn-refresh-hub-orders')) {
+  $('btn-refresh-hub-orders').addEventListener('click', () => loadHubRecentOrders());
+}
+
+async function loadHubRecentOrders() {
+  const container = $('hub-recent-orders-list');
+  if (!container) return;
+  container.innerHTML = '<p class="muted small">Loading recent orders...</p>';
+  try {
+    const res = await fetch('/api/orders/recent');
+    if (!res.ok) throw new Error('Failed to load orders');
+    const orders = await res.json();
+    if (!orders || orders.length === 0) {
+      container.innerHTML = '<p class="muted small">No recent orders found.</p>';
+      return;
+    }
+    container.innerHTML = '';
+    orders.forEach((o) => {
+      let itemsSummary = 'No items';
+      if (o.lines && o.lines.length > 0) {
+        itemsSummary = o.lines.map((l) => `${l.quantity}x ${l.name}`).join(', ');
+        if (itemsSummary.length > 36) itemsSummary = itemsSummary.substring(0, 36) + '...';
+      }
+      const isPaid = o.status === 'paid';
+      const isVoid = o.status === 'void';
+      const statusBadge = isPaid
+        ? '<span class="status-badge status-active">Paid</span>'
+        : isVoid
+          ? '<span class="status-badge status-inactive">Void</span>'
+          : '<span class="status-badge" style="background:#FFF6E0;color:#8A6A0F;">Open</span>';
+
+      const row = document.createElement('div');
+      row.style = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:12px;';
+      row.innerHTML = `
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+            <strong style="font-size:0.95rem;">${o.order_no}</strong>
+            ${statusBadge}
+            <span class="muted small">${o.type === 'dine_in' ? 'Dine-in' : 'Takeaway'}</span>
+          </div>
+          <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${itemsSummary}</div>
+          <div style="font-size:0.95rem;font-weight:800;color:var(--ink);">${naira(o.total_kobo)}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          ${isPaid ? `<button class="btn-sm btn-reprint-order" data-id="${o.id}" data-no="${o.order_no}">🖨️ Reprint</button>` : ''}
+          ${!isVoid ? `<button class="btn-sm btn-reopen-order" data-id="${o.id}" data-no="${o.order_no}" style="background:var(--paper);border-color:var(--jollof);color:var(--jollof);">Edit</button>` : ''}
+          ${isPaid ? `<button class="btn-sm btn-danger btn-void-order" data-id="${o.id}" data-no="${o.order_no}">Void</button>` : ''}
+        </div>
+      `;
+      container.appendChild(row);
+    });
+  } catch (err) {
+    container.innerHTML = `<p class="error small">${err.message}</p>`;
+  }
+}
+
+if ($('hub-recent-orders-list')) {
+  $('hub-recent-orders-list').addEventListener('click', (e) => {
+    const reprintBtn = e.target.closest('.btn-reprint-order');
+    if (reprintBtn) {
+      reprintReceipt(reprintBtn.dataset.id, reprintBtn.dataset.no);
+      return;
+    }
+    const reopenBtn = e.target.closest('.btn-reopen-order');
+    if (reopenBtn) {
+      if (managerHubModal) managerHubModal.hidden = true;
+      promptManagerAuth(reopenBtn.dataset.id, reopenBtn.dataset.no, 'reopen');
+      return;
+    }
+    const voidBtn = e.target.closest('.btn-void-order');
+    if (voidBtn) {
+      promptManagerAuth(voidBtn.dataset.id, voidBtn.dataset.no, 'void');
+      return;
     }
   });
 }

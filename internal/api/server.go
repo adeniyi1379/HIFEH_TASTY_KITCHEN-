@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -73,12 +74,16 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.Handle("POST /api/order/meta", s.requireCap(core.CapSell, http.HandlerFunc(s.apiOrderMeta)))
 	mux.Handle("POST /api/order/send", s.requireCap(core.CapSell, http.HandlerFunc(s.apiSend)))
 	mux.Handle("POST /api/order/pay", s.requireCap(core.CapSell, http.HandlerFunc(s.apiPay)))
+	mux.Handle("POST /api/order/save", s.requireCap(core.CapSell, http.HandlerFunc(s.apiSaveOrder)))
 	mux.Handle("POST /api/order/clear", s.requireCap(core.CapSell, http.HandlerFunc(s.apiClear)))
 	mux.Handle("GET /api/orders/recent", s.requireCap(core.CapSell, http.HandlerFunc(s.apiRecentOrders)))
 	mux.Handle("GET /api/order/{id}", s.auth(http.HandlerFunc(s.apiGetOrder)))
 	mux.Handle("POST /api/order/{id}/reprint", s.auth(http.HandlerFunc(s.apiReprintOrder)))
 	mux.Handle("POST /api/order/{id}/reopen", s.requireCap(core.CapSell, http.HandlerFunc(s.apiReopenOrder)))
 	mux.Handle("POST /api/order/{id}/void", s.requireCap(core.CapSell, http.HandlerFunc(s.apiVoidOrder)))
+
+	mux.Handle("GET /api/inventory", s.auth(http.HandlerFunc(s.apiGetInventory)))
+	mux.Handle("POST /api/inventory/{id}/restock", s.auth(http.HandlerFunc(s.apiRestockItem)))
 
 	// Admin / Manager CRUD & Configurations
 	mux.Handle("GET /api/admin/workers", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminListWorkers)))
@@ -91,7 +96,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.Handle("GET /api/admin/menu/items", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminListItems)))
 	mux.Handle("POST /api/admin/menu/items", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminCreateItem)))
 	mux.Handle("PUT /api/admin/menu/items/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminUpdateItem)))
-	mux.Handle("POST /api/admin/menu/items/{id}/toggle", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminToggleItem)))
+	mux.Handle("POST /api/admin/menu/items/{id}/toggle", s.auth(http.HandlerFunc(s.apiAdminToggleItem)))
 	mux.Handle("DELETE /api/admin/menu/items/{id}", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminDeleteItem)))
 
 	mux.Handle("GET /api/admin/menu/categories", s.requireCap(core.CapAdminister, http.HandlerFunc(s.apiAdminListCategories)))
@@ -209,12 +214,17 @@ func (s *Server) pageSeller(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	report, _ := store.GetTodayReport(r.Context(), s.db)
+	allItems, _ := store.ListAllItems(r.Context(), s.db)
 	s.render(w, "seller.html", map[string]any{
-		"User":        user,
-		"Categories":  cats,
-		"Items":       items,
-		"Business":    set.BusinessName,
-		"IsOwner":     user.Role == "owner",
+		"User":       user,
+		"Categories": cats,
+		"Items":      items,
+		"AllItems":   allItems,
+		"Business":   set.BusinessName,
+		"IsOwner":    user.Role == "owner",
+		"IsManager":  user.Role == "manager",
+		"Report":     report,
 	})
 }
 
@@ -460,14 +470,46 @@ func (s *Server) apiPay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no order", http.StatusBadRequest)
 		return
 	}
+	existing, _ := store.GetOrderByID(r.Context(), s.db, id)
+	wasEdit := existing != nil && existing.IsEdit
+
 	o, err := store.PayOrder(r.Context(), s.db, id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "order_paid", "order", o.ID,
-		map[string]any{"order_no": o.OrderNo, "total_kobo": o.TotalKobo, "method": "cash"})
+	action := "order_paid"
+	if wasEdit {
+		action = "edited"
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", action, "order", o.ID,
+		map[string]any{"order_no": o.OrderNo, "total_kobo": o.TotalKobo, "method": "cash", "edited_by": user.Name})
 	s.hub.Broadcast("order", o)
+	s.broadcastInventory(r.Context())
+	writeJSON(w, http.StatusOK, o)
+}
+
+func (s *Server) apiSaveOrder(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := s.latestOrderID(r)
+	if id == "" {
+		http.Error(w, "no order to save", http.StatusBadRequest)
+		return
+	}
+	o, err := store.PayOrder(r.Context(), s.db, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "edited", "order", o.ID,
+		map[string]any{
+			"order_no":    o.OrderNo,
+			"total_kobo":  o.TotalKobo,
+			"edited_by":   user.Name,
+			"lines_count": len(o.Lines),
+		})
+	s.hub.Broadcast("order", o)
+	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, o)
 }
 
@@ -477,11 +519,18 @@ func (s *Server) apiClear(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, nil)
 		return
 	}
-	if err := store.ClearOrder(r.Context(), s.db, id); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	existing, _ := store.GetOrderByID(r.Context(), s.db, id)
+	if existing != nil && existing.IsEdit {
+		// Re-lock the reopened order in paid state so it isn't deleted or dangling
+		_, _ = store.PayOrder(r.Context(), s.db, id)
+	} else {
+		if err := store.ClearOrder(r.Context(), s.db, id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	s.hub.Broadcast("order", nil)
+	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, nil)
 }
 
@@ -529,14 +578,24 @@ func (s *Server) apiReopenOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mgr, err := store.FindByPIN(r.Context(), s.db, req.ManagerPIN)
-	if err != nil || mgr == nil {
-		http.Error(w, "invalid PIN", http.StatusUnauthorized)
-		return
-	}
-	if mgr.Role != "manager" && mgr.Role != "owner" {
-		http.Error(w, "manager or owner authorization required", http.StatusForbidden)
-		return
+	var mgr *store.User
+	if user.Role == "manager" || user.Role == "owner" {
+		mgr = &user
+	} else {
+		if req.ManagerPIN == "" {
+			http.Error(w, "manager PIN required", http.StatusUnauthorized)
+			return
+		}
+		var err error
+		mgr, err = store.FindByPIN(r.Context(), s.db, req.ManagerPIN)
+		if err != nil || mgr == nil {
+			http.Error(w, "invalid PIN", http.StatusUnauthorized)
+			return
+		}
+		if mgr.Role != "manager" && mgr.Role != "owner" {
+			http.Error(w, "manager or owner authorization required", http.StatusForbidden)
+			return
+		}
 	}
 
 	o, err := store.ReopenOrder(r.Context(), s.db, id)
@@ -560,6 +619,7 @@ func (s *Server) apiReopenOrder(w http.ResponseWriter, r *http.Request) {
 		})
 
 	s.hub.Broadcast("order", o)
+	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, o)
 }
 
@@ -575,14 +635,24 @@ func (s *Server) apiVoidOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mgr, err := store.FindByPIN(r.Context(), s.db, req.ManagerPIN)
-	if err != nil || mgr == nil {
-		http.Error(w, "invalid PIN", http.StatusUnauthorized)
-		return
-	}
-	if mgr.Role != "manager" && mgr.Role != "owner" {
-		http.Error(w, "manager or owner authorization required", http.StatusForbidden)
-		return
+	var mgr *store.User
+	if user.Role == "manager" || user.Role == "owner" {
+		mgr = &user
+	} else {
+		if req.ManagerPIN == "" {
+			http.Error(w, "manager PIN required", http.StatusUnauthorized)
+			return
+		}
+		var err error
+		mgr, err = store.FindByPIN(r.Context(), s.db, req.ManagerPIN)
+		if err != nil || mgr == nil {
+			http.Error(w, "invalid PIN", http.StatusUnauthorized)
+			return
+		}
+		if mgr.Role != "manager" && mgr.Role != "owner" {
+			http.Error(w, "manager or owner authorization required", http.StatusForbidden)
+			return
+		}
 	}
 
 	o, err := store.VoidOrder(r.Context(), s.db, id)
@@ -606,7 +676,15 @@ func (s *Server) apiVoidOrder(w http.ResponseWriter, r *http.Request) {
 		})
 
 	s.hub.Broadcast("order", nil)
+	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, o)
+}
+
+func (s *Server) broadcastInventory(ctx context.Context) {
+	items, err := store.ListAllItems(ctx, s.db)
+	if err == nil {
+		s.hub.Broadcast("inventory", items)
+	}
 }
 
 // latestOrderID resolves the order being worked on. Phase 1 keeps a
@@ -744,23 +822,26 @@ func (s *Server) apiAdminListItems(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiAdminCreateItem(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
 	var req struct {
-		CategoryID string `json:"category_id"`
-		Name       string `json:"name"`
-		UnitType   string `json:"unit_type"`
-		UnitLabel  string `json:"unit_label"`
-		PriceKobo  int64  `json:"price_kobo"`
+		CategoryID     string `json:"category_id"`
+		Name           string `json:"name"`
+		UnitType       string `json:"unit_type"`
+		UnitLabel      string `json:"unit_label"`
+		PriceKobo      int64  `json:"price_kobo"`
+		TrackInventory bool   `json:"track_inventory"`
+		StockQuantity  int64  `json:"stock_quantity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	it, err := store.CreateItem(r.Context(), s.db, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo)
+	it, err := store.CreateItem(r.Context(), s.db, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo, req.TrackInventory, req.StockQuantity)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_created", "item", it.ID,
-		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo})
+		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo, "stock": it.StockQuantity, "track": it.TrackInventory})
+	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusCreated, it)
 }
 
@@ -768,28 +849,35 @@ func (s *Server) apiAdminUpdateItem(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
 	id := r.PathValue("id")
 	var req struct {
-		CategoryID string `json:"category_id"`
-		Name       string `json:"name"`
-		UnitType   string `json:"unit_type"`
-		UnitLabel  string `json:"unit_label"`
-		PriceKobo  int64  `json:"price_kobo"`
+		CategoryID     string `json:"category_id"`
+		Name           string `json:"name"`
+		UnitType       string `json:"unit_type"`
+		UnitLabel      string `json:"unit_label"`
+		PriceKobo      int64  `json:"price_kobo"`
+		TrackInventory bool   `json:"track_inventory"`
+		StockQuantity  int64  `json:"stock_quantity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	it, err := store.UpdateItem(r.Context(), s.db, id, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo)
+	it, err := store.UpdateItem(r.Context(), s.db, id, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo, req.TrackInventory, req.StockQuantity)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_updated", "item", id,
-		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo})
+		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo, "stock": it.StockQuantity, "track": it.TrackInventory})
+	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, it)
 }
 
 func (s *Server) apiAdminToggleItem(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
+	if user.Role != "owner" && user.Role != "manager" {
+		http.Error(w, "manager or owner authorization required", http.StatusForbidden)
+		return
+	}
 	id := r.PathValue("id")
 	var req struct {
 		Active bool `json:"active"`
@@ -807,7 +895,95 @@ func (s *Server) apiAdminToggleItem(w http.ResponseWriter, r *http.Request) {
 		act = "item_activated"
 	}
 	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", act, "item", id, nil)
+	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) apiGetInventory(w http.ResponseWriter, r *http.Request) {
+	items, err := store.ListAllItems(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) apiRestockItem(w http.ResponseWriter, r *http.Request) {
+	user, _ := s.currentUser(r)
+	id := r.PathValue("id")
+	var req struct {
+		Delta          *int64 `json:"delta,omitempty"`
+		StockQuantity  *int64 `json:"stock_quantity,omitempty"`
+		TrackInventory *bool  `json:"track_inventory,omitempty"`
+		ManagerPIN     string `json:"manager_pin,omitempty"`
+		Reason         string `json:"reason,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	authorizerName := user.Name
+	if user.Role != "owner" && user.Role != "manager" {
+		if req.ManagerPIN == "" {
+			http.Error(w, "manager or owner authorization required", http.StatusForbidden)
+			return
+		}
+		mgr, err := store.FindByPIN(r.Context(), s.db, req.ManagerPIN)
+		if err != nil || mgr == nil {
+			http.Error(w, "invalid PIN", http.StatusUnauthorized)
+			return
+		}
+		if mgr.Role != "manager" && mgr.Role != "owner" {
+			http.Error(w, "manager or owner authorization required", http.StatusForbidden)
+			return
+		}
+		authorizerName = mgr.Name
+	}
+
+	if req.TrackInventory != nil {
+		_ = store.ToggleItemInventoryTracking(r.Context(), s.db, id, *req.TrackInventory)
+	}
+
+	var prevStock, newStock int64
+	action := "item_restocked"
+	if req.StockQuantity != nil {
+		newStock, _ = store.UpdateItemStock(r.Context(), s.db, id, *req.StockQuantity)
+		action = "item_stock_set"
+	} else if req.Delta != nil {
+		prevStock, newStock, _ = store.RestockItem(r.Context(), s.db, id, *req.Delta)
+		if *req.Delta < 0 {
+			action = "item_stock_reduced"
+		}
+	}
+
+	reason := req.Reason
+	if reason == "" {
+		if req.StockQuantity != nil {
+			reason = fmt.Sprintf("Stock set to %d", *req.StockQuantity)
+		} else if req.Delta != nil {
+			if *req.Delta < 0 {
+				reason = fmt.Sprintf("Stock reduced by %d", -(*req.Delta))
+			} else {
+				reason = fmt.Sprintf("Stock increased by +%d", *req.Delta)
+			}
+		} else {
+			reason = "Inventory update"
+		}
+	}
+
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", action, "item", id,
+		map[string]any{
+			"item_id":        id,
+			"authorizer":     authorizerName,
+			"previous_stock": prevStock,
+			"new_stock":      newStock,
+			"reason":         reason,
+		})
+
+	s.broadcastInventory(r.Context())
+	items, _ := store.ListAllItems(r.Context(), s.db)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "stock_quantity": newStock})
 }
 
 func (s *Server) apiAdminDeleteItem(w http.ResponseWriter, r *http.Request) {

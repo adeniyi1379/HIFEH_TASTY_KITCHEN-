@@ -305,6 +305,7 @@ html, body {
   gap: 14px;
 }
 .item-card {
+  position: relative;
   width: 100%;
   max-width: 178px;
   height: 196px;
@@ -329,6 +330,45 @@ html, body {
 }
 .item-card:active {
   transform: scale(0.98);
+}
+.stock-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  line-height: 1.2;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.stock-badge.stock-ok {
+  background: #E8F8EE;
+  color: #1e824c;
+  border: 1px solid rgba(30, 130, 76, 0.2);
+}
+.stock-badge.stock-low {
+  background: #FEF3E6;
+  color: #d35400;
+  border: 1px solid rgba(211, 84, 0, 0.2);
+}
+.stock-badge.stock-empty {
+  background: #FDE8E8;
+  color: #c0392b;
+  border: 1px solid rgba(192, 57, 43, 0.2);
+}
+.item-card.is-out-of-stock {
+  opacity: 0.48;
+  cursor: not-allowed;
+  filter: grayscale(60%);
+}
+.item-card.is-out-of-stock:hover {
+  transform: none;
+  box-shadow: var(--shadow-card);
+}
+.item-card.is-out-of-stock:active {
+  transform: none;
 }
 .item-img-wrap {
   width: 100%;
@@ -628,9 +668,39 @@ html, body {
   height: 52px;
   font-size: 0.96rem;
   font-weight: 600;
+  border: 1px solid transparent;
+  transition: all .15s ease;
 }
 .btn-action-pay:hover:not(:disabled) {
   background: #F9E2D4;
+}
+.btn-action-pay.btn-action-save {
+  background: #2B6CB0 !important;
+  color: #FFFFFF !important;
+  border-color: #2B6CB0 !important;
+  box-shadow: 0 4px 14px rgba(43, 108, 176, 0.35) !important;
+}
+.btn-action-pay.btn-action-save:hover:not(:disabled) {
+  background: #2C5282 !important;
+  border-color: #2C5282 !important;
+}
+.badge-editing {
+  display: inline-flex;
+  align-items: center;
+  background: #EBF8FF;
+  border: 1px solid #3182CE;
+  color: #2B6CB0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  animation: pulseEditBadge 2s infinite ease-in-out;
+}
+@keyframes pulseEditBadge {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(0.97); }
 }
 .btn-action-clear {
   background: var(--paper);
@@ -1398,6 +1468,114 @@ body.customer .seg-btn { cursor: default; }
 }
 .status-active { background: #EAF6EF; color: var(--leaf); }
 .status-inactive { background: #FDE8E8; color: #9B1C1C; }
+
+/* ---- Inventory Table & Stock Pills ---- */
+.stock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.stock-pill.in-stock {
+  background: #E8F8EE;
+  color: #1e824c;
+}
+.stock-pill.low-stock {
+  background: #FEF3E6;
+  color: #d35400;
+}
+.stock-pill.out-of-stock {
+  background: #FDE8E8;
+  color: #c0392b;
+}
+.stock-pill.untracked {
+  background: #F0F0F0;
+  color: #777;
+}
+
+.btn-restock-group {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.btn-restock-sm {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.2;
+  transition: all .15s ease;
+}
+.btn-restock-sm.btn-sub {
+  background: #FFF5F5;
+  border-color: #FED7D7;
+  color: #C53030;
+}
+.btn-restock-sm.btn-sub:hover {
+  background: #E53E3E;
+  border-color: #E53E3E;
+  color: #fff;
+}
+.btn-restock-sm.btn-add {
+  background: #F0FFF4;
+  border-color: #C6F6D5;
+  color: #276749;
+}
+.btn-restock-sm.btn-add:hover {
+  background: #38A169;
+  border-color: #38A169;
+  color: #fff;
+}
+
+.btn-set-stock, .btn-hub-set-stock, .btn-till-set-stock {
+  background: var(--paper) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--ink) !important;
+  font-size: 0.76rem !important;
+  font-weight: 600 !important;
+  padding: 3px 9px !important;
+  height: 25px !important;
+  border-radius: 6px !important;
+  white-space: nowrap !important;
+  cursor: pointer;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s ease;
+}
+.btn-set-stock:hover, .btn-hub-set-stock:hover, .btn-till-set-stock:hover {
+  background: var(--ink) !important;
+  color: #fff !important;
+  border-color: var(--ink) !important;
+}
+
+.confirm-badge-edit {
+  background: linear-gradient(135deg, #3182CE, #1A365D) !important;
+  box-shadow: 0 10px 24px rgba(49, 130, 206, 0.35) !important;
+}
+.confirm-title-edit {
+  color: #2B6CB0 !important;
+}
+.confirm-order-no-edit {
+  color: #2B6CB0 !important;
+  background: #EBF8FF !important;
+  border-color: #BEE3F8 !important;
+}
+.action-pill[data-action="edited"], .action-pill.action-edited {
+  background: #EBF8FF;
+  border-color: #3182CE;
+  color: #2B6CB0;
+}
 
 /* Buttons in Admin */
 .btn-sm {

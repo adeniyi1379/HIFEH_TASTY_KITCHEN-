@@ -59,6 +59,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
         <span>Menu Items</span>
       </button>
+      <button class="admin-tab-btn" data-tab="tab-inventory">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        <span>Inventory &amp; Stock</span>
+      </button>
       <button class="admin-tab-btn" data-tab="tab-categories">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
         <span>Categories</span>
@@ -195,6 +199,7 @@
                 <th>Category</th>
                 <th>Unit</th>
                 <th>Price</th>
+                <th>Stock</th>
                 <th>Status</th>
                 <th style="text-align:right;">Actions</th>
               </tr>
@@ -210,6 +215,19 @@
                 <td>per {{.UnitLabel}} ({{.UnitType}})</td>
                 <td><strong class="naira" data-kobo="{{.PricePerUnitKobo}}"></strong></td>
                 <td>
+                  {{if .TrackInventory}}
+                    {{if le .StockQuantity 0}}
+                      <span class="stock-pill out-of-stock">Finished (0)</span>
+                    {{else if le .StockQuantity 5}}
+                      <span class="stock-pill low-stock">{{.StockQuantity}} left</span>
+                    {{else}}
+                      <span class="stock-pill in-stock">{{.StockQuantity}} left</span>
+                    {{end}}
+                  {{else}}
+                    <span class="stock-pill untracked">Unlimited</span>
+                  {{end}}
+                </td>
+                <td>
                   <span class="status-badge {{if .Active}}status-active{{else}}status-inactive{{end}}">
                     {{if .Active}}Available{{else}}Inactive{{end}}
                   </span>
@@ -221,11 +239,85 @@
                           data-category="{{.CategoryID}}"
                           data-unittype="{{.UnitType}}"
                           data-unitlabel="{{.UnitLabel}}"
-                          data-price="{{.PricePerUnitKobo}}">Edit</button>
+                          data-price="{{.PricePerUnitKobo}}"
+                          data-track="{{if .TrackInventory}}true{{else}}false{{end}}"
+                          data-stock="{{.StockQuantity}}">Edit</button>
                   <button class="btn-sm btn-toggle-item" data-id="{{.ID}}" data-active="{{if .Active}}true{{else}}false{{end}}">
                     {{if .Active}}Disable{{else}}Enable{{end}}
                   </button>
                   <button class="btn-sm btn-danger btn-delete-item" data-id="{{.ID}}" data-name="{{.Name}}">Delete</button>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: INVENTORY & STOCK -->
+    <section id="tab-inventory" class="admin-section">
+      <div class="admin-card">
+        <div class="admin-card-head">
+          <div>
+            <h2>Inventory &amp; Stock Levels</h2>
+            <p class="muted small" style="margin:4px 0 0;">Real-time stock across all cashiers. Stock is automatically depleted as orders are paid.</p>
+          </div>
+          <button id="btn-refresh-inventory" class="btn btn-ghost" style="height:38px;padding:6px 14px;font-size:0.85rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table" id="inventory-table">
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Dish / Item</th>
+                <th>Category</th>
+                <th>Unit</th>
+                <th>Stock Level</th>
+                <th>Tracking</th>
+                <th style="text-align:right;min-width:350px;">Stock Adjustments</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Items}}
+              <tr data-id="{{.ID}}" data-name="{{.Name}}">
+                <td style="width:50px;">
+                  <img src="/static/images/{{.ID}}.png" alt="" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';" style="width:38px;height:38px;object-fit:cover;border-radius:8px;background:#fdfdfd;border:1px solid var(--line);">
+                </td>
+                <td><strong class="item-cell-name">{{.Name}}</strong></td>
+                <td><span class="action-pill">{{.CategoryName}}</span></td>
+                <td>per {{.UnitLabel}}</td>
+                <td>
+                  {{if .TrackInventory}}
+                    {{if le .StockQuantity 0}}
+                      <span class="stock-pill out-of-stock">Finished (0)</span>
+                    {{else if le .StockQuantity 5}}
+                      <span class="stock-pill low-stock">{{.StockQuantity}} left</span>
+                    {{else}}
+                      <span class="stock-pill in-stock">{{.StockQuantity}} left</span>
+                    {{end}}
+                  {{else}}
+                    <span class="stock-pill untracked">Unlimited</span>
+                  {{end}}
+                </td>
+                <td>
+                  <button class="btn-sm btn-toggle-track" data-id="{{.ID}}" data-track="{{if .TrackInventory}}true{{else}}false{{end}}">
+                    {{if .TrackInventory}}Tracking ON{{else}}Tracking OFF{{end}}
+                  </button>
+                </td>
+                <td style="text-align:right;white-space:nowrap;min-width:350px;">
+                  <div class="btn-restock-group" style="justify-content:flex-end;">
+                    <button type="button" class="btn-restock-sm btn-sub btn-quick-sub" data-id="{{.ID}}" data-name="{{.Name}}" data-delta="-10" title="Reduce 10">−10</button>
+                    <button type="button" class="btn-restock-sm btn-sub btn-quick-sub" data-id="{{.ID}}" data-name="{{.Name}}" data-delta="-5" title="Reduce 5">−5</button>
+                    <button type="button" class="btn-restock-sm btn-add btn-quick-add" data-id="{{.ID}}" data-name="{{.Name}}" data-delta="10" title="Add 10">+10</button>
+                    <button type="button" class="btn-restock-sm btn-add btn-quick-add" data-id="{{.ID}}" data-name="{{.Name}}" data-delta="25" title="Add 25">+25</button>
+                    <button type="button" class="btn-restock-sm btn-add btn-quick-add" data-id="{{.ID}}" data-name="{{.Name}}" data-delta="50" title="Add 50">+50</button>
+                    <button type="button" class="btn-sm btn-set-stock" data-id="{{.ID}}" data-name="{{.Name}}" data-stock="{{.StockQuantity}}">Set Stock</button>
+                  </div>
                 </td>
               </tr>
               {{end}}
@@ -480,6 +572,19 @@
           <label for="item-price">Price (in Naira ₦)</label>
           <input type="number" id="item-price" class="form-control" placeholder="e.g. 500" min="0" step="50" required>
         </div>
+        <div class="form-grid" style="align-items:center;padding:12px;background:var(--bg);border-radius:12px;border:1px solid var(--line);margin-bottom:16px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;">
+              <input type="checkbox" id="item-track-inventory" checked style="width:18px;height:18px;accent-color:var(--jollof);">
+              <span>Track Inventory</span>
+            </label>
+            <span class="muted small" style="display:block;margin-top:2px;">Stock depletes automatically when sold.</span>
+          </div>
+          <div class="form-group" id="item-stock-group" style="margin-bottom:0;">
+            <label for="item-stock" style="font-weight:600;">Stock Quantity</label>
+            <input type="number" id="item-stock" class="form-control" placeholder="50" min="0" value="50">
+          </div>
+        </div>
         <div class="form-group">
           <label>Dish Photo</label>
           <div style="display:flex;align-items:center;gap:16px;">
@@ -731,6 +836,8 @@
       document.getElementById('item-unitlabel').value = 'portion';
       document.getElementById('item-unittype').value = 'spoon';
       document.getElementById('item-price').value = '';
+      document.getElementById('item-track-inventory').checked = true;
+      document.getElementById('item-stock').value = '50';
       pendingDishImage = null;
       dishImagePreview.src = '/static/images/default_dish.svg';
       dishImageInfo.textContent = 'Default dish SVG is used if no photo is added. Auto-compressed on upload.';
@@ -747,6 +854,8 @@
         document.getElementById('item-unittype').value = d.unittype;
         document.getElementById('item-unitlabel').value = d.unitlabel;
         document.getElementById('item-price').value = Number(d.price) / 100;
+        document.getElementById('item-track-inventory').checked = d.track !== 'false';
+        document.getElementById('item-stock').value = d.stock || '0';
         pendingDishImage = null;
         dishImagePreview.src = '/static/images/' + d.id + '.png?v=' + Date.now();
         dishImageInfo.textContent = 'Click Choose Photo to replace. Auto-compressed on upload.';
@@ -788,6 +897,8 @@
         unit_type: document.getElementById('item-unittype').value,
         unit_label: document.getElementById('item-unitlabel').value.trim(),
         price_kobo: Math.round(Number(document.getElementById('item-price').value) * 100),
+        track_inventory: document.getElementById('item-track-inventory').checked,
+        stock_quantity: parseInt(document.getElementById('item-stock').value, 10) || 0,
       };
       const url = id ? `/api/admin/menu/items/${id}` : '/api/admin/menu/items';
       const method = id ? 'PUT' : 'POST';
@@ -816,6 +927,86 @@
       }
 
       window.location.reload();
+    });
+
+    // ---- INVENTORY & STOCK MANAGEMENT TAB ----
+    if (document.getElementById('btn-refresh-inventory')) {
+      document.getElementById('btn-refresh-inventory').addEventListener('click', () => {
+        window.location.reload();
+      });
+    }
+
+    document.querySelectorAll('.btn-quick-add, .btn-quick-sub').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const { id, name, delta } = btn.dataset;
+        const d = parseInt(delta, 10);
+        const reason = d < 0 ? `Admin reduced stock ${d}` : `Admin quick restock +${d}`;
+        try {
+          const res = await fetch(`/api/inventory/${id}/restock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ delta: d, reason: reason })
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            alert('Stock adjustment failed: ' + err);
+            return;
+          }
+          window.location.reload();
+        } catch (err) {
+          alert('Error: ' + err.message);
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-set-stock').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const { id, name, stock } = btn.dataset;
+        const val = prompt(`Set exact stock quantity for ${name}:`, stock || '0');
+        if (val === null) return;
+        const num = parseInt(val, 10);
+        if (isNaN(num) || num < 0) {
+          alert('Please enter a valid non-negative number');
+          return;
+        }
+        try {
+          const res = await fetch(`/api/inventory/${id}/restock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stock_quantity: num, reason: `Admin set stock to ${num}` })
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            alert('Failed to set stock: ' + err);
+            return;
+          }
+          window.location.reload();
+        } catch (err) {
+          alert('Error: ' + err.message);
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-toggle-track').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const { id, track } = btn.dataset;
+        const newTrack = track !== 'true';
+        try {
+          const res = await fetch(`/api/inventory/${id}/restock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ track_inventory: newTrack, reason: `Admin toggled tracking ${newTrack ? 'ON' : 'OFF'}` })
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            alert('Failed to update tracking: ' + err);
+            return;
+          }
+          window.location.reload();
+        } catch (err) {
+          alert('Error: ' + err.message);
+        }
+      });
     });
 
     document.querySelectorAll('.btn-toggle-item').forEach((btn) => {

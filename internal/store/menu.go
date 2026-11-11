@@ -66,6 +66,8 @@ type Item struct {
 	UnitLabel        string `json:"unit_label"`
 	PricePerUnitKobo int64  `json:"price_per_unit_kobo"`
 	Active           bool   `json:"active"`
+	TrackInventory   bool   `json:"track_inventory"`
+	StockQuantity    int64  `json:"stock_quantity"`
 }
 
 func ListCategories(ctx context.Context, db *sql.DB) ([]Category, error) {
@@ -152,7 +154,7 @@ func DeleteCategory(ctx context.Context, db *sql.DB, id string) error {
 
 func ListItems(ctx context.Context, db *sql.DB) ([]Item, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT i.id, i.category_id, COALESCE(c.name, ''), i.name, i.unit_type, i.unit_label, i.price_per_unit_kobo, i.active
+		`SELECT i.id, i.category_id, COALESCE(c.name, ''), i.name, i.unit_type, i.unit_label, i.price_per_unit_kobo, i.active, i.track_inventory, i.stock_quantity
 		 FROM items i
 		 LEFT JOIN categories c ON c.id = i.category_id
 		 WHERE i.active = 1
@@ -164,11 +166,12 @@ func ListItems(ctx context.Context, db *sql.DB) ([]Item, error) {
 	var out []Item
 	for rows.Next() {
 		var it Item
-		var act int
-		if err := rows.Scan(&it.ID, &it.CategoryID, &it.CategoryName, &it.Name, &it.UnitType, &it.UnitLabel, &it.PricePerUnitKobo, &act); err != nil {
+		var act, track int
+		if err := rows.Scan(&it.ID, &it.CategoryID, &it.CategoryName, &it.Name, &it.UnitType, &it.UnitLabel, &it.PricePerUnitKobo, &act, &track, &it.StockQuantity); err != nil {
 			return nil, err
 		}
 		it.Active = act == 1
+		it.TrackInventory = track == 1
 		out = append(out, it)
 	}
 	return out, rows.Err()
@@ -176,7 +179,7 @@ func ListItems(ctx context.Context, db *sql.DB) ([]Item, error) {
 
 func ListAllItems(ctx context.Context, db *sql.DB) ([]Item, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT i.id, i.category_id, COALESCE(c.name, ''), i.name, i.unit_type, i.unit_label, i.price_per_unit_kobo, i.active
+		`SELECT i.id, i.category_id, COALESCE(c.name, ''), i.name, i.unit_type, i.unit_label, i.price_per_unit_kobo, i.active, i.track_inventory, i.stock_quantity
 		 FROM items i
 		 LEFT JOIN categories c ON c.id = i.category_id
 		 ORDER BY c.sort_order, i.name`)
@@ -187,17 +190,18 @@ func ListAllItems(ctx context.Context, db *sql.DB) ([]Item, error) {
 	var out []Item
 	for rows.Next() {
 		var it Item
-		var act int
-		if err := rows.Scan(&it.ID, &it.CategoryID, &it.CategoryName, &it.Name, &it.UnitType, &it.UnitLabel, &it.PricePerUnitKobo, &act); err != nil {
+		var act, track int
+		if err := rows.Scan(&it.ID, &it.CategoryID, &it.CategoryName, &it.Name, &it.UnitType, &it.UnitLabel, &it.PricePerUnitKobo, &act, &track, &it.StockQuantity); err != nil {
 			return nil, err
 		}
 		it.Active = act == 1
+		it.TrackInventory = track == 1
 		out = append(out, it)
 	}
 	return out, rows.Err()
 }
 
-func CreateItem(ctx context.Context, db *sql.DB, categoryID, name, unitType, unitLabel string, priceKobo int64) (Item, error) {
+func CreateItem(ctx context.Context, db *sql.DB, categoryID, name, unitType, unitLabel string, priceKobo int64, trackInventory bool, stockQuantity int64) (Item, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Item{}, errors.New("item name cannot be empty")
@@ -218,6 +222,9 @@ func CreateItem(ctx context.Context, db *sql.DB, categoryID, name, unitType, uni
 	if priceKobo < 0 {
 		return Item{}, errors.New("price cannot be negative")
 	}
+	if stockQuantity < 0 {
+		stockQuantity = 0
+	}
 
 	slug := slugify(name)
 	id := "itm_" + slug
@@ -231,10 +238,15 @@ func CreateItem(ctx context.Context, db *sql.DB, categoryID, name, unitType, uni
 		id = fmt.Sprintf("itm_%s_%s", slug, randHex(4))
 	}
 
+	trackInt := 0
+	if trackInventory {
+		trackInt = 1
+	}
+
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO items (id, category_id, name, unit_type, unit_label, price_per_unit_kobo, active)
-		 VALUES (?, ?, ?, ?, ?, ?, 1)`,
-		id, categoryID, name, unitType, unitLabel, priceKobo,
+		`INSERT INTO items (id, category_id, name, unit_type, unit_label, price_per_unit_kobo, active, track_inventory, stock_quantity)
+		 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		id, categoryID, name, unitType, unitLabel, priceKobo, trackInt, stockQuantity,
 	)
 	if err != nil {
 		return Item{}, err
@@ -247,10 +259,12 @@ func CreateItem(ctx context.Context, db *sql.DB, categoryID, name, unitType, uni
 		UnitLabel:        unitLabel,
 		PricePerUnitKobo: priceKobo,
 		Active:           true,
+		TrackInventory:   trackInventory,
+		StockQuantity:    stockQuantity,
 	}, nil
 }
 
-func UpdateItem(ctx context.Context, db *sql.DB, id, categoryID, name, unitType, unitLabel string, priceKobo int64) (Item, error) {
+func UpdateItem(ctx context.Context, db *sql.DB, id, categoryID, name, unitType, unitLabel string, priceKobo int64, trackInventory bool, stockQuantity int64) (Item, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Item{}, errors.New("item name cannot be empty")
@@ -264,11 +278,19 @@ func UpdateItem(ctx context.Context, db *sql.DB, id, categoryID, name, unitType,
 	if priceKobo < 0 {
 		return Item{}, errors.New("price cannot be negative")
 	}
+	if stockQuantity < 0 {
+		stockQuantity = 0
+	}
+
+	trackInt := 0
+	if trackInventory {
+		trackInt = 1
+	}
 
 	res, err := db.ExecContext(ctx,
-		`UPDATE items SET category_id = ?, name = ?, unit_type = ?, unit_label = ?, price_per_unit_kobo = ?, updated_at = datetime('now')
+		`UPDATE items SET category_id = ?, name = ?, unit_type = ?, unit_label = ?, price_per_unit_kobo = ?, track_inventory = ?, stock_quantity = ?, updated_at = datetime('now')
 		 WHERE id = ?`,
-		categoryID, name, unitType, unitLabel, priceKobo, id,
+		categoryID, name, unitType, unitLabel, priceKobo, trackInt, stockQuantity, id,
 	)
 	if err != nil {
 		return Item{}, err
@@ -279,13 +301,59 @@ func UpdateItem(ctx context.Context, db *sql.DB, id, categoryID, name, unitType,
 	}
 
 	var it Item
-	var act int
+	var act, track int
 	err = db.QueryRowContext(ctx,
-		`SELECT i.id, i.category_id, COALESCE(c.name, ''), i.name, i.unit_type, i.unit_label, i.price_per_unit_kobo, i.active
+		`SELECT i.id, i.category_id, COALESCE(c.name, ''), i.name, i.unit_type, i.unit_label, i.price_per_unit_kobo, i.active, i.track_inventory, i.stock_quantity
 		 FROM items i LEFT JOIN categories c ON c.id = i.category_id WHERE i.id = ?`, id,
-	).Scan(&it.ID, &it.CategoryID, &it.CategoryName, &it.Name, &it.UnitType, &it.UnitLabel, &it.PricePerUnitKobo, &act)
+	).Scan(&it.ID, &it.CategoryID, &it.CategoryName, &it.Name, &it.UnitType, &it.UnitLabel, &it.PricePerUnitKobo, &act, &track, &it.StockQuantity)
 	it.Active = act == 1
+	it.TrackInventory = track == 1
 	return it, err
+}
+
+func UpdateItemStock(ctx context.Context, db *sql.DB, id string, stockQuantity int64) (int64, error) {
+	if stockQuantity < 0 {
+		stockQuantity = 0
+	}
+	res, err := db.ExecContext(ctx, `UPDATE items SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?`, stockQuantity, id)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return 0, errors.New("item not found")
+	}
+	return stockQuantity, nil
+}
+
+func RestockItem(ctx context.Context, db *sql.DB, id string, delta int64) (int64, int64, error) {
+	var currentStock int64
+	err := db.QueryRowContext(ctx, `SELECT stock_quantity FROM items WHERE id = ?`, id).Scan(&currentStock)
+	if err != nil {
+		return 0, 0, err
+	}
+	newStock := currentStock + delta
+	if newStock < 0 {
+		newStock = 0
+	}
+	_, err = db.ExecContext(ctx, `UPDATE items SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?`, newStock, id)
+	return currentStock, newStock, err
+}
+
+func ToggleItemInventoryTracking(ctx context.Context, db *sql.DB, id string, track bool) error {
+	t := 0
+	if track {
+		t = 1
+	}
+	res, err := db.ExecContext(ctx, `UPDATE items SET track_inventory = ?, updated_at = datetime('now') WHERE id = ?`, t, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("item not found")
+	}
+	return nil
 }
 
 func SetItemActive(ctx context.Context, db *sql.DB, id string, active bool) error {
