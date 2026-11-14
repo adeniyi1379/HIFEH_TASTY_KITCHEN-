@@ -14,6 +14,10 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// TerminalID identifies the single till in Phase 1: order sequence,
+// order numbers and audit entries all belong to this terminal.
+const TerminalID = "T1"
+
 func Open(path string) (*sql.DB, error) {
 	dsn := fmt.Sprintf("file:%s?_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)", path)
 	db, err := sql.Open("sqlite", dsn)

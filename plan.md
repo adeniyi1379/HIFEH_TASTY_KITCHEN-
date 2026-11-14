@@ -67,12 +67,11 @@ Every table: UUIDv7 primary key, `created_at`, `updated_at`, `terminal_id`. Mone
 |---|---|
 | users | Worker name, role (cashier/manager/owner), pin_hash, active |
 | categories | Rice, Sides, Pastries, Drinks, Packs; manager can add more |
-| items | Name, category, unit_type (spoon/count), price_per_unit_kobo, low_stock_level, active |
-| item_prices | Dated price history; past sales keep the price they were sold at |
-| packs / pack_components | Saved bundles sold with one tap; stock deducted per component |
+| items | Name, category, unit_type (spoon/count), price_per_unit_kobo, low_stock_level, active; `is_combo` marks meal bundles |
+| combo_components | Bundle recipes: combo → component item + quantity; stock checked/deducted per component |
 | discounts | Percent or fixed; scope (all_food/category/item/pack); schedule or manual; no stacking — best single discount per line |
 | settings | VAT on/off, rate (basis points), mode (inclusive/added on top), business details, packaging fee |
-| orders / order_lines / order_line_components | Orders with type (dine-in/table or takeaway), totals, worker, terminal; pack components frozen at sale time |
+| orders / order_lines | Orders with type (dine-in/table or takeaway), totals, worker, terminal; combo lines priced at the combo price, auto-added component lines carry a zero price |
 | payments | Cash (change due), bank transfer, card — manual confirmation, optional reference |
 | stock_ledger | Append-only: batch_in, sale, void_return, wastage, adjustment, restock, count_diff |
 | stock_balances | Cached balance, updated in the same transaction as each ledger row |

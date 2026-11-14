@@ -34,6 +34,23 @@ func FindByPIN(ctx context.Context, db *sql.DB, pin string) (*User, error) {
 	return nil, rows.Err()
 }
 
+// GetUserByID loads one user, including inactive ones.
+func GetUserByID(ctx context.Context, db *sql.DB, id string) (*User, error) {
+	var u User
+	var active int
+	err := db.QueryRowContext(ctx,
+		`SELECT id, name, role, active FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.Name, &u.Role, &active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.Active = active == 1
+	return &u, nil
+}
+
 func ListUsers(ctx context.Context, db *sql.DB) ([]User, error) {
 	rows, err := db.QueryContext(ctx, `SELECT id, name, role, active FROM users ORDER BY role, name`)
 	if err != nil {

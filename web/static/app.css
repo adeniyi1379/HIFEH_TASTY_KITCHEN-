@@ -358,6 +358,26 @@ html, body {
   color: #c0392b;
   border: 1px solid rgba(192, 57, 43, 0.2);
 }
+.combo-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.2;
+  z-index: 2;
+  background: #EEF4FF;
+  color: #2B6CB0;
+  border: 1px solid rgba(43, 108, 176, 0.25);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+td .combo-badge {
+  position: static;
+  display: inline-block;
+  margin-left: 6px;
+}
 .item-card.is-out-of-stock {
   opacity: 0.48;
   cursor: not-allowed;

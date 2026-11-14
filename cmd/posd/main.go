@@ -4,11 +4,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"tatsy/internal/api"
 	"tatsy/internal/store"
@@ -50,10 +54,29 @@ func main() {
 		slog.Info("open the buyer display on Terminal B", "url", "http://"+ip+":"+port(*addr)+"/display")
 	}
 
-	if err := http.ListenAndServe(*addr, srv.Routes()); err != nil {
+	httpSrv := &http.Server{Addr: *addr, Handler: srv.Routes()}
+
+	// Graceful shutdown: stop accepting, drain in-flight requests, close db.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		slog.Info("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("shutdown", "err", err)
+		}
+	}()
+
+	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("listen", "err", err)
 		os.Exit(1)
 	}
+	if err := db.Close(); err != nil {
+		slog.Error("close db", "err", err)
+	}
+	slog.Info("server stopped")
 }
 
 // lanIP finds the first non-loopback IPv4 address to print a helpful URL.

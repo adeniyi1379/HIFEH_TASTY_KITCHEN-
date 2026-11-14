@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -12,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,12 +28,26 @@ import (
 
 const sessionCookie = "tatsy_session"
 
+const sessionTTL = 12 * time.Hour
+
 type Server struct {
 	db       *sql.DB
 	hub      *Hub
 	tpl      *template.Template
 	mu       sync.Mutex
-	sessions map[string]store.User
+	sessions map[string]sessionEntry
+	// loginFails tracks failed PIN attempts per client IP for rate limiting.
+	loginFails map[string]*loginAttempt
+}
+
+type sessionEntry struct {
+	user    store.User
+	expires time.Time
+}
+
+type loginAttempt struct {
+	fails       int
+	lockedUntil time.Time
 }
 
 func NewServer(db *sql.DB, hub *Hub) (*Server, error) {
@@ -39,7 +55,7 @@ func NewServer(db *sql.DB, hub *Hub) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{db: db, hub: hub, tpl: tpl, sessions: make(map[string]store.User)}, nil
+	return &Server{db: db, hub: hub, tpl: tpl, sessions: make(map[string]sessionEntry), loginFails: make(map[string]*loginAttempt)}, nil
 }
 
 func (s *Server) Routes() *http.ServeMux {
@@ -124,20 +140,56 @@ func newToken() string {
 	return hex.EncodeToString(b)
 }
 
+func (s *Server) createSession(u store.User) string {
+	tok := newToken()
+	s.mu.Lock()
+	s.sessions[tok] = sessionEntry{user: u, expires: time.Now().Add(sessionTTL)}
+	s.mu.Unlock()
+	return tok
+}
+
+// invalidateUserSessions drops every session belonging to a user, used
+// when they are deactivated, deleted, or their PIN is reset.
+func (s *Server) invalidateUserSessions(userID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for tok, e := range s.sessions {
+		if e.user.ID == userID {
+			delete(s.sessions, tok)
+		}
+	}
+}
+
 func (s *Server) currentUser(r *http.Request) (store.User, bool) {
-	tok := ""
+	var tok string
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		tok = c.Value
-	} else if q := r.URL.Query().Get("session"); q != "" {
-		tok = q
 	}
 	if tok == "" {
 		return store.User{}, false
 	}
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	u, ok := s.sessions[tok]
-	return u, ok
+	e, ok := s.sessions[tok]
+	if ok && time.Now().After(e.expires) {
+		delete(s.sessions, tok)
+		ok = false
+	}
+	s.mu.Unlock()
+	if !ok {
+		return store.User{}, false
+	}
+
+	// Revalidate against the DB so deactivated workers, PIN resets and
+	// role changes take effect immediately, not on next login.
+	u, err := store.GetUserByID(r.Context(), s.db, e.user.ID)
+	if err != nil || u == nil || !u.Active {
+		s.mu.Lock()
+		delete(s.sessions, tok)
+		s.mu.Unlock()
+		return store.User{}, false
+	}
+	return *u, true
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {
@@ -197,21 +249,31 @@ func (s *Server) pageLogin(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "login.html", nil)
 }
 
+func pageFailed(w http.ResponseWriter, err error) {
+	slog.Error("page", "err", err)
+	http.Error(w, "internal error; please retry", http.StatusInternalServerError)
+}
+
+func apiFailed(w http.ResponseWriter, err error) {
+	slog.Error("api", "err", err)
+	http.Error(w, "internal error; please retry", http.StatusInternalServerError)
+}
+
 func (s *Server) pageSeller(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
 	cats, err := store.ListCategories(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	items, err := store.ListItems(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	set, err := store.GetSettings(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	report, _ := store.GetTodayReport(r.Context(), s.db)
@@ -234,27 +296,27 @@ func (s *Server) pageAdmin(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
 	set, err := store.GetSettings(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	workers, err := store.ListUsers(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	cats, err := store.ListCategories(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	items, err := store.ListAllItems(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	report, err := store.GetTodayReport(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	var audit []store.AuditEntry
@@ -278,17 +340,17 @@ func (s *Server) pageAdmin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pageDisplay(w http.ResponseWriter, r *http.Request) {
 	set, err := store.GetSettings(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	cats, err := store.ListCategories(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	items, err := store.ListItems(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		pageFailed(w, err)
 		return
 	}
 	s.render(w, "display.html", map[string]any{
@@ -306,7 +368,63 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// clientIP extracts the remote address without its port.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// checkLoginLocked returns how long the client must wait, or zero.
+func (s *Server) checkLoginLocked(ip string) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.loginFails[ip]
+	if a == nil {
+		return 0
+	}
+	if d := time.Until(a.lockedUntil); d > 0 {
+		return d
+	}
+	return 0
+}
+
+// recordLoginFailure counts a failed attempt; after the 5th failure the
+// client is locked out with exponential backoff (capped at 15 minutes).
+func (s *Server) recordLoginFailure(ip string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.loginFails[ip]
+	if a == nil {
+		a = &loginAttempt{}
+		s.loginFails[ip] = a
+	}
+	a.fails++
+	if a.fails >= 5 {
+		backoff := 30 * time.Second << uint(a.fails-5)
+		if backoff > 15*time.Minute {
+			backoff = 15 * time.Minute
+		}
+		a.lockedUntil = time.Now().Add(backoff)
+	}
+}
+
+// recordLoginSuccess clears the failure counter for the client.
+func (s *Server) recordLoginSuccess(ip string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.loginFails, ip)
+}
+
 func (s *Server) apiLogin(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if d := s.checkLoginLocked(ip); d > 0 {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(d.Seconds())+1))
+		http.Error(w, fmt.Sprintf("too many failed attempts; try again in %d seconds", int(d.Seconds())+1), http.StatusTooManyRequests)
+		return
+	}
 	var req struct {
 		PIN string `json:"pin"`
 	}
@@ -316,33 +434,33 @@ func (s *Server) apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := store.FindByPIN(r.Context(), s.db, req.PIN)
 	if err != nil {
+		slog.Error("login", "err", err)
 		http.Error(w, "login failed", http.StatusInternalServerError)
 		return
 	}
 	if u == nil {
+		s.recordLoginFailure(ip)
 		http.Error(w, "wrong PIN", http.StatusUnauthorized)
 		return
 	}
-	token := newToken()
-	s.mu.Lock()
-	s.sessions[token] = *u
-	s.mu.Unlock()
+	s.recordLoginSuccess(ip)
+	token := s.createSession(*u)
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600,
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL.Seconds()),
 	})
-	_ = store.Audit(r.Context(), s.db, u.ID, u.Name, "T1", "login", "user", u.ID, map[string]any{"role": u.Role})
+	_ = store.Audit(r.Context(), s.db, u.ID, u.Name, store.TerminalID, "login", "user", u.ID, map[string]any{"role": u.Role})
 	writeJSON(w, http.StatusOK, u)
 }
 
 func (s *Server) apiLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		s.mu.Lock()
-		u, ok := s.sessions[c.Value]
+		e, ok := s.sessions[c.Value]
 		delete(s.sessions, c.Value)
 		s.mu.Unlock()
 		if ok {
-			_ = store.Audit(r.Context(), s.db, u.ID, u.Name, "T1", "logout", "user", u.ID, nil)
+			_ = store.Audit(r.Context(), s.db, e.user.ID, e.user.Name, store.TerminalID, "logout", "user", e.user.ID, nil)
 		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1})
@@ -356,7 +474,7 @@ func (s *Server) apiCurrentOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, o)
@@ -367,9 +485,9 @@ func (s *Server) apiCurrentOrder(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiCashiers(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	seen := make(map[string]store.User)
-	for _, u := range s.sessions {
-		if core.Allowed(u.Role, core.CapMirror) {
-			seen[u.ID] = u
+	for _, e := range s.sessions {
+		if core.Allowed(e.user.Role, core.CapMirror) {
+			seen[e.user.ID] = e.user
 		}
 	}
 	s.mu.Unlock()
@@ -482,7 +600,7 @@ func (s *Server) apiPay(w http.ResponseWriter, r *http.Request) {
 	if wasEdit {
 		action = "edited"
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", action, "order", o.ID,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, action, "order", o.ID,
 		map[string]any{"order_no": o.OrderNo, "total_kobo": o.TotalKobo, "method": "cash", "edited_by": user.Name})
 	s.hub.Broadcast("order", o)
 	s.broadcastInventory(r.Context())
@@ -501,7 +619,7 @@ func (s *Server) apiSaveOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "edited", "order", o.ID,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "order_saved", "order", o.ID,
 		map[string]any{
 			"order_no":    o.OrderNo,
 			"total_kobo":  o.TotalKobo,
@@ -537,7 +655,7 @@ func (s *Server) apiClear(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiRecentOrders(w http.ResponseWriter, r *http.Request) {
 	orders, err := store.ListRecentOrders(r.Context(), s.db, 20)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, orders)
@@ -561,7 +679,7 @@ func (s *Server) apiReprintOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "order not found", http.StatusNotFound)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "receipt_reprinted", "order", o.ID,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "receipt_reprinted", "order", o.ID,
 		map[string]any{"order_no": o.OrderNo, "reprinted_by": user.Name, "total_kobo": o.TotalKobo})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "order": o})
 }
@@ -609,7 +727,7 @@ func (s *Server) apiReopenOrder(w http.ResponseWriter, r *http.Request) {
 		reason = "Recent order correction"
 	}
 
-	_ = store.Audit(r.Context(), s.db, mgr.ID, mgr.Name, "T1", "order_reopened", "order", o.ID,
+	_ = store.Audit(r.Context(), s.db, mgr.ID, mgr.Name, store.TerminalID, "order_reopened", "order", o.ID,
 		map[string]any{
 			"order_no":     o.OrderNo,
 			"manager_name": mgr.Name,
@@ -666,7 +784,7 @@ func (s *Server) apiVoidOrder(w http.ResponseWriter, r *http.Request) {
 		reason = "Order voided"
 	}
 
-	_ = store.Audit(r.Context(), s.db, mgr.ID, mgr.Name, "T1", "order_voided", "order", o.ID,
+	_ = store.Audit(r.Context(), s.db, mgr.ID, mgr.Name, store.TerminalID, "order_voided", "order", o.ID,
 		map[string]any{
 			"order_no":     o.OrderNo,
 			"manager_name": mgr.Name,
@@ -708,7 +826,7 @@ func (s *Server) latestOrderID(r *http.Request) string {
 func (s *Server) apiAdminListWorkers(w http.ResponseWriter, r *http.Request) {
 	workers, err := store.ListUsers(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, workers)
@@ -730,7 +848,7 @@ func (s *Server) apiAdminCreateWorker(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_created", "user", wkr.ID,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "worker_created", "user", wkr.ID,
 		map[string]any{"name": wkr.Name, "role": wkr.Role})
 	writeJSON(w, http.StatusCreated, wkr)
 }
@@ -750,7 +868,7 @@ func (s *Server) apiAdminUpdateWorker(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_updated", "user", id,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "worker_updated", "user", id,
 		map[string]any{"name": req.Name, "role": req.Role})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -769,11 +887,14 @@ func (s *Server) apiAdminToggleWorker(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !req.Active {
+		s.invalidateUserSessions(id)
+	}
 	act := "worker_deactivated"
 	if req.Active {
 		act = "worker_activated"
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", act, "user", id, nil)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, act, "user", id, nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -791,7 +912,8 @@ func (s *Server) apiAdminResetWorkerPIN(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_pin_reset", "user", id, nil)
+	s.invalidateUserSessions(id)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "worker_pin_reset", "user", id, nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -806,41 +928,47 @@ func (s *Server) apiAdminDeleteWorker(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "worker_deleted", "user", id, nil)
+	s.invalidateUserSessions(id)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "worker_deleted", "user", id, nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) apiAdminListItems(w http.ResponseWriter, r *http.Request) {
 	items, err := store.ListAllItems(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
 }
 
+// itemRequest is the shared JSON body of item create/update.
+type itemRequest struct {
+	CategoryID     string                      `json:"category_id"`
+	Name           string                      `json:"name"`
+	UnitType       string                      `json:"unit_type"`
+	UnitLabel      string                      `json:"unit_label"`
+	PriceKobo      int64                       `json:"price_kobo"`
+	TrackInventory bool                        `json:"track_inventory"`
+	StockQuantity  int64                       `json:"stock_quantity"`
+	IsCombo        bool                        `json:"is_combo"`
+	Components     []store.ComboComponentInput `json:"components"`
+}
+
 func (s *Server) apiAdminCreateItem(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
-	var req struct {
-		CategoryID     string `json:"category_id"`
-		Name           string `json:"name"`
-		UnitType       string `json:"unit_type"`
-		UnitLabel      string `json:"unit_label"`
-		PriceKobo      int64  `json:"price_kobo"`
-		TrackInventory bool   `json:"track_inventory"`
-		StockQuantity  int64  `json:"stock_quantity"`
-	}
+	var req itemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	it, err := store.CreateItem(r.Context(), s.db, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo, req.TrackInventory, req.StockQuantity)
+	it, err := store.CreateItem(r.Context(), s.db, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo, req.TrackInventory, req.StockQuantity, req.IsCombo, req.Components)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_created", "item", it.ID,
-		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo, "stock": it.StockQuantity, "track": it.TrackInventory})
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "item_created", "item", it.ID,
+		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo, "stock": it.StockQuantity, "track": it.TrackInventory, "is_combo": it.IsCombo, "components": len(it.Components)})
 	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusCreated, it)
 }
@@ -848,26 +976,18 @@ func (s *Server) apiAdminCreateItem(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiAdminUpdateItem(w http.ResponseWriter, r *http.Request) {
 	user, _ := s.currentUser(r)
 	id := r.PathValue("id")
-	var req struct {
-		CategoryID     string `json:"category_id"`
-		Name           string `json:"name"`
-		UnitType       string `json:"unit_type"`
-		UnitLabel      string `json:"unit_label"`
-		PriceKobo      int64  `json:"price_kobo"`
-		TrackInventory bool   `json:"track_inventory"`
-		StockQuantity  int64  `json:"stock_quantity"`
-	}
+	var req itemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	it, err := store.UpdateItem(r.Context(), s.db, id, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo, req.TrackInventory, req.StockQuantity)
+	it, err := store.UpdateItem(r.Context(), s.db, id, req.CategoryID, req.Name, req.UnitType, req.UnitLabel, req.PriceKobo, req.TrackInventory, req.StockQuantity, req.IsCombo, req.Components)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_updated", "item", id,
-		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo, "stock": it.StockQuantity, "track": it.TrackInventory})
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "item_updated", "item", id,
+		map[string]any{"name": it.Name, "price_kobo": it.PricePerUnitKobo, "stock": it.StockQuantity, "track": it.TrackInventory, "is_combo": it.IsCombo, "components": len(it.Components)})
 	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, it)
 }
@@ -894,7 +1014,7 @@ func (s *Server) apiAdminToggleItem(w http.ResponseWriter, r *http.Request) {
 	if req.Active {
 		act = "item_activated"
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", act, "item", id, nil)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, act, "item", id, nil)
 	s.broadcastInventory(r.Context())
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -902,7 +1022,7 @@ func (s *Server) apiAdminToggleItem(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiGetInventory(w http.ResponseWriter, r *http.Request) {
 	items, err := store.ListAllItems(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -942,19 +1062,36 @@ func (s *Server) apiRestockItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.TrackInventory != nil {
-		_ = store.ToggleItemInventoryTracking(r.Context(), s.db, id, *req.TrackInventory)
+		if err := store.ToggleItemInventoryTracking(r.Context(), s.db, id, *req.TrackInventory); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	var prevStock, newStock int64
 	action := "item_restocked"
-	if req.StockQuantity != nil {
-		newStock, _ = store.UpdateItemStock(r.Context(), s.db, id, *req.StockQuantity)
+	switch {
+	case req.StockQuantity != nil:
+		ns, err := store.UpdateItemStock(r.Context(), s.db, id, *req.StockQuantity)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		newStock = ns
 		action = "item_stock_set"
-	} else if req.Delta != nil {
-		prevStock, newStock, _ = store.RestockItem(r.Context(), s.db, id, *req.Delta)
+	case req.Delta != nil:
+		p, ns, err := store.RestockItem(r.Context(), s.db, id, *req.Delta)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		prevStock, newStock = p, ns
 		if *req.Delta < 0 {
 			action = "item_stock_reduced"
 		}
+	default:
+		http.Error(w, "nothing to update: provide delta, stock_quantity, or track_inventory", http.StatusBadRequest)
+		return
 	}
 
 	reason := req.Reason
@@ -972,7 +1109,7 @@ func (s *Server) apiRestockItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", action, "item", id,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, action, "item", id,
 		map[string]any{
 			"item_id":        id,
 			"authorizer":     authorizerName,
@@ -993,14 +1130,14 @@ func (s *Server) apiAdminDeleteItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_deleted", "item", id, nil)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "item_deleted", "item", id, nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) apiAdminListCategories(w http.ResponseWriter, r *http.Request) {
 	cats, err := store.ListCategories(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, cats)
@@ -1020,7 +1157,7 @@ func (s *Server) apiAdminCreateCategory(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "category_created", "category", cat.ID,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "category_created", "category", cat.ID,
 		map[string]any{"name": cat.Name})
 	writeJSON(w, http.StatusCreated, cat)
 }
@@ -1039,7 +1176,7 @@ func (s *Server) apiAdminUpdateCategory(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "category_updated", "category", id,
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "category_updated", "category", id,
 		map[string]any{"name": req.Name})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -1051,14 +1188,14 @@ func (s *Server) apiAdminDeleteCategory(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "category_deleted", "category", id, nil)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "category_deleted", "category", id, nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) apiAdminGetSettings(w http.ResponseWriter, r *http.Request) {
 	set, err := store.GetSettings(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, set)
@@ -1083,7 +1220,7 @@ func (s *Server) apiAdminUpdateSettings(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "settings_updated", "settings", "1",
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "settings_updated", "settings", "1",
 		map[string]any{"business_name": set.BusinessName, "vat_enabled": set.VATEnabled})
 	writeJSON(w, http.StatusOK, set)
 }
@@ -1091,22 +1228,34 @@ func (s *Server) apiAdminUpdateSettings(w http.ResponseWriter, r *http.Request) 
 func (s *Server) apiAdminGetTodayReport(w http.ResponseWriter, r *http.Request) {
 	rep, err := store.GetTodayReport(r.Context(), s.db)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		apiFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rep)
 }
 
-func saveImageFromRequest(r *http.Request, targetPath string) error {
+const maxImageBytes = 5 << 20 // 5 MB
+
+var pngMagic = []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
+var jpegMagic = []byte{0xFF, 0xD8, 0xFF}
+
+func isSupportedImage(b []byte) bool {
+	return bytes.HasPrefix(b, pngMagic) || bytes.HasPrefix(b, jpegMagic)
+}
+
+// readImagePayload reads the request body (JSON base64 or multipart) into
+// memory with a hard size cap and verifies it starts with a PNG or JPEG
+// magic number. The frontend compresses uploads to PNG/JPEG data URLs.
+func readImagePayload(r *http.Request) ([]byte, error) {
 	contentType := r.Header.Get("Content-Type")
 
-	// 1. Base64 payload
 	if strings.Contains(contentType, "application/json") {
+		r.Body = http.MaxBytesReader(nil, r.Body, maxImageBytes*4/3+4096)
 		var req struct {
 			Image string `json:"image"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			return err
+			return nil, errors.New("bad request body or image too large")
 		}
 		data := req.Image
 		if idx := strings.Index(data, ","); idx != -1 {
@@ -1114,34 +1263,45 @@ func saveImageFromRequest(r *http.Request, targetPath string) error {
 		}
 		raw, err := base64.StdEncoding.DecodeString(data)
 		if err != nil {
-			return err
+			return nil, errors.New("image is not valid base64")
 		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-			return err
-		}
-		return os.WriteFile(targetPath, raw, 0644)
+		return raw, nil
 	}
 
-	// 2. Multipart form file
-	if err := r.ParseMultipartForm(10 << 20); err == nil {
+	if strings.Contains(contentType, "multipart/form-data") {
+		if err := r.ParseMultipartForm(maxImageBytes); err != nil {
+			return nil, errors.New("image too large or bad multipart body")
+		}
 		file, _, err := r.FormFile("file")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer file.Close()
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-			return err
-		}
-		out, err := os.Create(targetPath)
+		raw, err := io.ReadAll(io.LimitReader(file, maxImageBytes+1))
 		if err != nil {
-			return err
+			return nil, err
 		}
-		defer out.Close()
-		_, err = io.Copy(out, file)
-		return err
+		if len(raw) > maxImageBytes {
+			return nil, errors.New("image too large (max 5 MB)")
+		}
+		return raw, nil
 	}
 
-	return errors.New("unsupported content type")
+	return nil, errors.New("unsupported content type")
+}
+
+func saveImageFromRequest(r *http.Request, targetPath string) error {
+	raw, err := readImagePayload(r)
+	if err != nil {
+		return err
+	}
+	if !isSupportedImage(raw) {
+		return errors.New("only PNG or JPEG images are accepted")
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(targetPath, raw, 0644)
 }
 
 func (s *Server) apiAdminUploadLogo(w http.ResponseWriter, r *http.Request) {
@@ -1151,7 +1311,7 @@ func (s *Server) apiAdminUploadLogo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upload failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "logo_uploaded", "settings", "1", nil)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "logo_uploaded", "settings", "1", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": "/static/images/logo.png?v=" + fmt.Sprint(time.Now().Unix())})
 }
 
@@ -1162,11 +1322,15 @@ func (s *Server) apiAdminUploadItemImage(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "missing item id", http.StatusBadRequest)
 		return
 	}
+	if strings.ContainsAny(id, `/\\.`) {
+		http.Error(w, "invalid item id", http.StatusBadRequest)
+		return
+	}
 	target := filepath.Join("web", "static", "images", id+".png")
 	if err := saveImageFromRequest(r, target); err != nil {
 		http.Error(w, "upload failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, "T1", "item_image_uploaded", "item", id, nil)
+	_ = store.Audit(r.Context(), s.db, user.ID, user.Name, store.TerminalID, "item_image_uploaded", "item", id, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": "/static/images/" + id + ".png?v=" + fmt.Sprint(time.Now().Unix())})
 }

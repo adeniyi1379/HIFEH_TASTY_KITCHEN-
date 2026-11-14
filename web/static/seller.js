@@ -39,6 +39,13 @@ function toast(msg) {
   toastTimer = setTimeout(() => (el.hidden = true), 2500);
 }
 
+function lineSub(l) {
+  if (Number(l.unit_price_kobo) === 0) {
+    return `${l.quantity} ${l.unit_label}${l.quantity > 1 ? 's' : ''} · included in combo`;
+  }
+  return `${l.quantity} ${l.unit_label}${l.quantity > 1 ? 's' : ''} &times; ${naira(l.unit_price_kobo)}`;
+}
+
 function renderOrder(o) {
   currentOrder = o;
   const lines = $('order-lines');
@@ -58,7 +65,7 @@ function renderOrder(o) {
       row.innerHTML = `
         <div class="line-info">
           <div class="line-name"></div>
-          <div class="line-sub">${l.quantity} ${l.unit_label}${l.quantity > 1 ? 's' : ''} &times; ${naira(l.unit_price_kobo)}</div>
+          <div class="line-sub">${lineSub(l)}</div>
         </div>
         <div class="line-controls">
           <button class="qty-btn" data-act="dec" data-line="${l.id}" title="Decrease quantity">&minus;</button>
@@ -219,13 +226,16 @@ function populateReceipt(o, isEdit) {
   let linesHtml = '';
   if (o.lines) {
     for (const l of o.lines) {
+      const sub = Number(l.unit_price_kobo) === 0
+        ? `${l.quantity} ${l.unit_label}${l.quantity > 1 ? 's' : ''} · included in combo`
+        : `${l.quantity} ${l.unit_label}${l.quantity > 1 ? 's' : ''} @ ${naira(l.unit_price_kobo)}`;
       linesHtml += `
         <div class="rcpt-item-row">
           <span class="rcpt-item-qty">${l.quantity}x</span>
           <span class="rcpt-item-name">${l.name}</span>
           <span class="rcpt-item-amt">${naira(l.line_total_kobo)}</span>
         </div>
-        <div class="rcpt-item-sub">${l.quantity} ${l.unit_label}${l.quantity > 1 ? 's' : ''} @ ${naira(l.unit_price_kobo)}</div>
+        <div class="rcpt-item-sub">${sub}</div>
       `;
     }
   }

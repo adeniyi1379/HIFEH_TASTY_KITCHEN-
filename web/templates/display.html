@@ -48,6 +48,9 @@
       <div id="item-grid" class="grid">
         {{range .Items}}
         <div class="item-card" data-cat="{{.CategoryID}}" data-item="{{.ID}}">
+          {{if .IsCombo}}
+          <span class="combo-badge">Combo · {{len .Components}} items</span>
+          {{end}}
           <div class="item-img-wrap">
             <img class="item-img" src="/static/images/{{.ID}}.png" alt="{{.Name}}" loading="lazy" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';">
           </div>

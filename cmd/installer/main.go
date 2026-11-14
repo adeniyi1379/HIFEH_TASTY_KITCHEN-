@@ -36,69 +36,69 @@ var (
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
 	advapi32 = syscall.NewLazyDLL("advapi32.dll")
 
-	procGetModuleHandle    = kernel32.NewProc("GetModuleHandleW")
-	procCreateActCtx       = kernel32.NewProc("CreateActCtxW")
-	procActivateActCtx     = kernel32.NewProc("ActivateActCtx")
-	procRegisterClassEx    = user32.NewProc("RegisterClassExW")
-	procCreateWindowEx     = user32.NewProc("CreateWindowExW")
-	procShowWindow         = user32.NewProc("ShowWindow")
-	procUpdateWindow       = user32.NewProc("UpdateWindow")
-	procGetMessage         = user32.NewProc("GetMessageW")
-	procTranslateMessage   = user32.NewProc("TranslateMessage")
-	procDispatchMessage    = user32.NewProc("DispatchMessageW")
-	procDefWindowProc      = user32.NewProc("DefWindowProcW")
-	procPostQuitMessage    = user32.NewProc("PostQuitMessage")
-	procSendMessage        = user32.NewProc("SendMessageW")
-	procGetWindowText      = user32.NewProc("GetWindowTextW")
-	procSetWindowText      = user32.NewProc("SetWindowTextW")
-	procEnableWindow       = user32.NewProc("EnableWindow")
-	procMessageBox         = user32.NewProc("MessageBoxW")
-	procGetSystemMetrics   = user32.NewProc("GetSystemMetrics")
-	procDestroyWindow      = user32.NewProc("DestroyWindow")
-	procLoadCursor         = user32.NewProc("LoadCursorW")
-	procLoadIcon           = user32.NewProc("LoadIconW")
-	procGetDC              = user32.NewProc("GetDC")
-	procReleaseDC          = user32.NewProc("ReleaseDC")
-	procGetStockObject     = gdi32.NewProc("GetStockObject")
-	procCreateFont         = gdi32.NewProc("CreateFontW")
-	procGetDeviceCaps      = gdi32.NewProc("GetDeviceCaps")
-	procRegCreateKeyEx     = advapi32.NewProc("RegCreateKeyExW")
-	procRegSetValueEx      = advapi32.NewProc("RegSetValueExW")
-	procRegCloseKey        = advapi32.NewProc("RegCloseKey")
+	procGetModuleHandle  = kernel32.NewProc("GetModuleHandleW")
+	procCreateActCtx     = kernel32.NewProc("CreateActCtxW")
+	procActivateActCtx   = kernel32.NewProc("ActivateActCtx")
+	procRegisterClassEx  = user32.NewProc("RegisterClassExW")
+	procCreateWindowEx   = user32.NewProc("CreateWindowExW")
+	procShowWindow       = user32.NewProc("ShowWindow")
+	procUpdateWindow     = user32.NewProc("UpdateWindow")
+	procGetMessage       = user32.NewProc("GetMessageW")
+	procTranslateMessage = user32.NewProc("TranslateMessage")
+	procDispatchMessage  = user32.NewProc("DispatchMessageW")
+	procDefWindowProc    = user32.NewProc("DefWindowProcW")
+	procPostQuitMessage  = user32.NewProc("PostQuitMessage")
+	procSendMessage      = user32.NewProc("SendMessageW")
+	procGetWindowText    = user32.NewProc("GetWindowTextW")
+	procSetWindowText    = user32.NewProc("SetWindowTextW")
+	procEnableWindow     = user32.NewProc("EnableWindow")
+	procMessageBox       = user32.NewProc("MessageBoxW")
+	procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+	procDestroyWindow    = user32.NewProc("DestroyWindow")
+	procLoadCursor       = user32.NewProc("LoadCursorW")
+	procLoadIcon         = user32.NewProc("LoadIconW")
+	procGetDC            = user32.NewProc("GetDC")
+	procReleaseDC        = user32.NewProc("ReleaseDC")
+	procGetStockObject   = gdi32.NewProc("GetStockObject")
+	procCreateFont       = gdi32.NewProc("CreateFontW")
+	procGetDeviceCaps    = gdi32.NewProc("GetDeviceCaps")
+	procRegCreateKeyEx   = advapi32.NewProc("RegCreateKeyExW")
+	procRegSetValueEx    = advapi32.NewProc("RegSetValueExW")
+	procRegCloseKey      = advapi32.NewProc("RegCloseKey")
 )
 
 // Window messages
 const (
-	WM_CREATE       = 0x0001
-	WM_DESTROY      = 0x0002
-	WM_CLOSE        = 0x0010
-	WM_SETFONT      = 0x0030
-	WM_COMMAND      = 0x0111
+	WM_CREATE         = 0x0001
+	WM_DESTROY        = 0x0002
+	WM_CLOSE          = 0x0010
+	WM_SETFONT        = 0x0030
+	WM_COMMAND        = 0x0111
 	WM_CTLCOLORSTATIC = 0x0138
 )
 
 // Window/control styles
 const (
-	WS_OVERLAPPED   = 0x00000000
-	WS_CAPTION      = 0x00C00000
-	WS_SYSMENU      = 0x00080000
-	WS_MINIMIZEBOX  = 0x00020000
-	WS_VISIBLE      = 0x10000000
-	WS_CHILD        = 0x40000000
-	WS_TABSTOP      = 0x00010000
-	WS_GROUP        = 0x00020000
+	WS_OVERLAPPED    = 0x00000000
+	WS_CAPTION       = 0x00C00000
+	WS_SYSMENU       = 0x00080000
+	WS_MINIMIZEBOX   = 0x00020000
+	WS_VISIBLE       = 0x10000000
+	WS_CHILD         = 0x40000000
+	WS_TABSTOP       = 0x00010000
+	WS_GROUP         = 0x00020000
 	WS_EX_CLIENTEDGE = 0x00000200
-	BS_PUSHBUTTON   = 0x00000000
+	BS_PUSHBUTTON    = 0x00000000
 	BS_DEFPUSHBUTTON = 0x00000001
-	BS_AUTOCHECKBOX = 0x00000003
-	BS_GROUPBOX     = 0x00000007
-	SS_LEFT         = 0x00000000
-	SS_CENTER       = 0x00000001
-	ES_AUTOHSCROLL  = 0x00000080
-	BM_GETCHECK     = 0x00F0
-	BM_SETCHECK     = 0x00F1
-	BST_CHECKED     = 1
-	BST_UNCHECKED   = 0
+	BS_AUTOCHECKBOX  = 0x00000003
+	BS_GROUPBOX      = 0x00000007
+	SS_LEFT          = 0x00000000
+	SS_CENTER        = 0x00000001
+	ES_AUTOHSCROLL   = 0x00000080
+	BM_GETCHECK      = 0x00F0
+	BM_SETCHECK      = 0x00F1
+	BST_CHECKED      = 1
+	BST_UNCHECKED    = 0
 )
 
 // System metrics / colors
@@ -162,15 +162,15 @@ type MSG struct {
 }
 
 type ACTCTX struct {
-	CbSize                uint32
-	DwFlags               uint32
-	LpSource              *uint16
+	CbSize                 uint32
+	DwFlags                uint32
+	LpSource               *uint16
 	WProcessorArchitecture uint16
-	LangId                uint16
-	LpAssemblyDirectory   *uint16
-	LpResourceName        uintptr
-	LpApplicationName     *uint16
-	HModule               uintptr
+	LangId                 uint16
+	LpAssemblyDirectory    *uint16
+	LpResourceName         uintptr
+	LpApplicationName      *uint16
+	HModule                uintptr
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -211,20 +211,20 @@ func msgBox(hwnd uintptr, title, text string, flags uintptr) int {
 
 func createFont(name string, height int32, weight int32) uintptr {
 	h, _, _ := procCreateFont.Call(
-		uintptr(height),                           // nHeight
-		0,                                          // nWidth
-		0,                                          // nEscapement
-		0,                                          // nOrientation
-		uintptr(weight),                            // fnWeight
-		0,                                          // fdwItalic
-		0,                                          // fdwUnderline
-		0,                                          // fdwStrikeOut
-		1,                                          // fdwCharSet (DEFAULT_CHARSET)
-		0,                                          // fdwOutputPrecision
-		0,                                          // fdwClipPrecision
-		0,                                          // fdwQuality
-		0,                                          // fdwPitchAndFamily
-		uintptr(unsafe.Pointer(utf16(name))),       // lpszFace
+		uintptr(height),                      // nHeight
+		0,                                    // nWidth
+		0,                                    // nEscapement
+		0,                                    // nOrientation
+		uintptr(weight),                      // fnWeight
+		0,                                    // fdwItalic
+		0,                                    // fdwUnderline
+		0,                                    // fdwStrikeOut
+		1,                                    // fdwCharSet (DEFAULT_CHARSET)
+		0,                                    // fdwOutputPrecision
+		0,                                    // fdwClipPrecision
+		0,                                    // fdwQuality
+		0,                                    // fdwPitchAndFamily
+		uintptr(unsafe.Pointer(utf16(name))), // lpszFace
 	)
 	return h
 }
@@ -280,6 +280,20 @@ func createControlEx(exStyle uintptr, class, text string, style uintptr, x, y, w
 	return hwnd
 }
 
+// CREATE_NO_WINDOW keeps console children from flashing a black window.
+const createNoWindow = 0x08000000
+
+func hideConsole(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+}
+
+// openBrowserLater opens the till page once posd has had a moment to start.
+func openBrowserLater() {
+	cmd := exec.Command("cmd", "/c", "timeout /t 3 /nobreak >nul && start http://localhost:8080")
+	hideConsole(cmd)
+	cmd.Start()
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Visual styles (themed controls)
 // ══════════════════════════════════════════════════════════════════════
@@ -304,8 +318,8 @@ func enableVisualStyles() {
 	defer os.Remove(mPath)
 
 	ctx := ACTCTX{
-		CbSize:  uint32(unsafe.Sizeof(ACTCTX{})),
-		DwFlags: 0,
+		CbSize:   uint32(unsafe.Sizeof(ACTCTX{})),
+		DwFlags:  0,
 		LpSource: utf16(mPath),
 	}
 	hCtx, _, _ := procCreateActCtx.Call(uintptr(unsafe.Pointer(&ctx)))
@@ -344,7 +358,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		subtitleSize := -int32(10 * dpi / 72)
 		bodySize := -int32(9 * dpi / 72)
 
-		hFontTitle = createFont("Segoe UI", titleSize, 700)    // Bold
+		hFontTitle = createFont("Segoe UI", titleSize, 700) // Bold
 		hFontSubtitle = createFont("Segoe UI", subtitleSize, 400)
 		hFont = createFont("Segoe UI", bodySize, 400)
 
@@ -447,8 +461,10 @@ func browseFolder() string {
 		`$f.ShowNewFolderButton = $true; ` +
 		`if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath } else { '' }`
 
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	// -STA: the WinForms FolderBrowserDialog requires an STA thread;
+	// without it the dialog can fail to appear or hang the call.
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", script)
+	hideConsole(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -475,7 +491,9 @@ func doInstall() {
 
 	// Kill any running instance
 	setStatus("Stopping any running instance...")
-	exec.Command("taskkill", "/F", "/IM", "posd.exe").Run()
+	taskkill := exec.Command("taskkill", "/F", "/IM", "posd.exe")
+	hideConsole(taskkill)
+	taskkill.Run()
 
 	// Create folder
 	setStatus("Creating install folder...")
@@ -555,10 +573,12 @@ func doInstall() {
 	// Firewall rule
 	if isChecked(hWndChkFirewall) {
 		setStatus("Adding firewall rule...")
-		exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
+		netsh := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
 			"name="+appName, "dir=in", "action=allow",
 			"program="+destExe, "enable=yes", "profile=private",
-		).Run()
+		)
+		hideConsole(netsh)
+		netsh.Run()
 	}
 
 	// Register in Add/Remove Programs
@@ -580,11 +600,14 @@ func doInstall() {
 	if isChecked(hWndChkLaunch) {
 		cmd := exec.Command(destExe)
 		cmd.Dir = folder
+		hideConsole(cmd)
 		cmd.Start()
-		exec.Command("cmd", "/c", "timeout /t 3 /nobreak >nul && start http://localhost:8080").Start()
+		openBrowserLater()
 	}
 
-	procDestroyWindow.Call(hWndMain)
+	// Close the window from the worker thread. DestroyWindow must be called
+	// from the thread that created the window, so route WM_CLOSE to it.
+	procSendMessage.Call(hWndMain, WM_CLOSE, 0, 0)
 }
 
 func createShortcut(lnkPath, targetExe, workDir, description, iconPath string) {
@@ -599,7 +622,7 @@ func createShortcut(lnkPath, targetExe, workDir, description, iconPath string) {
 		lnkPath, targetExe, workDir, description, iconPath,
 	)
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	hideConsole(cmd)
 	cmd.Run()
 }
 

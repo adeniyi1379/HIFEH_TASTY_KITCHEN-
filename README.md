@@ -70,6 +70,23 @@ You can show customers what they're ordering on a second screen (TV or tablet).
 
 ---
 
+## 🍔 Meal Combos
+
+Bundles such as "Rice + Chicken + Coke" can be created once and sold with one tap:
+
+1. **Creating a combo** (Owner Console → Menu):
+   - Tick **"This is a combo"** in the dish form
+   - Pick the included dishes and their quantities, then **Add component**
+   - The combo has its own price — stock tracking lives on the components, not the combo
+
+2. **Selling a combo**:
+   - Tapping a combo adds the combo at its price plus the bundled dishes listed as *free* items (`included in combo` on the receipt)
+   - Raising/lowering the combo quantity moves the bundled items along with it; removing the combo removes them too
+   - If any bundled dish is sold out, the combo is blocked until restocked, and paying a sale deducts each component's stock
+
+
+---
+
 ## 📦 Global Real-Time Inventory & Stock
 
 Stock is synchronized live across all cashiers and kitchen managers:

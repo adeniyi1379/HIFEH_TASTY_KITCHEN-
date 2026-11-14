@@ -37,7 +37,10 @@ func Seed(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if n == 0 {
-		cats := []struct{ id, name string; sort int }{
+		cats := []struct {
+			id, name string
+			sort     int
+		}{
 			{"cat_rice", "Rice", 1},
 			{"cat_sides", "Sides", 2},
 			{"cat_pastries", "Pastries", 3},
@@ -66,6 +69,51 @@ func Seed(ctx context.Context, db *sql.DB) error {
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO items (id, category_id, name, unit_type, unit_label, price_per_unit_kobo) VALUES (?,?,?,?,?,?)`,
 				it.id, it.cat, it.name, it.unit, it.label, it.price); err != nil {
+				return err
+			}
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO categories (id, name, sort_order) VALUES ('cat_packs', 'Packs', 5)`); err != nil {
+		return err
+	}
+
+	// Meal packs: sold at a fixed price, stock checked per component.
+	packs := []struct {
+		id, name   string
+		price      int64
+		components []struct {
+			id  string
+			qty int64
+		}
+	}{
+		{"itm_pack_mini", "Mini Pack", 65000, []struct {
+			id  string
+			qty int64
+		}{{"itm_jollof", 1}, {"itm_dodo", 1}, {"itm_water", 1}}},
+		{"itm_pack_standard", "Standard Pack", 75000, []struct {
+			id  string
+			qty int64
+		}{{"itm_fried", 1}, {"itm_dodo", 1}, {"itm_coke", 1}}},
+		{"itm_pack_super", "Super Pack", 145000, []struct {
+			id  string
+			qty int64
+		}{{"itm_jollof", 1}, {"itm_fried", 1}, {"itm_dodo", 1}, {"itm_meatpie", 1}, {"itm_fanta", 1}}},
+	}
+	for _, p := range packs {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO items
+			   (id, category_id, name, unit_type, unit_label, price_per_unit_kobo,
+			    track_inventory, stock_quantity, is_combo)
+			 VALUES (?,?,?,'count','combo',?,0,0,1)`,
+			p.id, "cat_packs", p.name, p.price); err != nil {
+			return err
+		}
+		for i, c := range p.components {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT OR IGNORE INTO combo_components (combo_id, item_id, quantity, sort_order)
+				 VALUES (?,?,?,?)`,
+				p.id, c.id, c.qty, i); err != nil {
 				return err
 			}
 		}

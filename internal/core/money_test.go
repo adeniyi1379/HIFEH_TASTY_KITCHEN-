@@ -6,8 +6,8 @@ func TestLinePrice(t *testing.T) {
 	cases := []struct {
 		qty, price, want int64
 	}{
-		{3, 50000, 150000},   // 3 spoons of jollof at ₦500
-		{5, 10000, 50000},    // 5 pieces of dodo at ₦100
+		{3, 50000, 150000}, // 3 spoons of jollof at ₦500
+		{5, 10000, 50000},  // 5 pieces of dodo at ₦100
 		{0, 50000, 0},
 	}
 	for _, c := range cases {

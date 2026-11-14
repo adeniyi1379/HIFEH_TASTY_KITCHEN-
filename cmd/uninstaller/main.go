@@ -20,7 +20,7 @@ var (
 	advapi32 = syscall.NewLazyDLL("advapi32.dll")
 
 	procMessageBox   = user32.NewProc("MessageBoxW")
-	procRegDeleteKey  = advapi32.NewProc("RegDeleteKeyW")
+	procRegDeleteKey = advapi32.NewProc("RegDeleteKeyW")
 )
 
 const (

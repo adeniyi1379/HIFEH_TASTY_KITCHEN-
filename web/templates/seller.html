@@ -80,6 +80,9 @@
                 data-name="{{.Name}}"
                 data-track-inventory="{{if .TrackInventory}}true{{else}}false{{end}}"
                 data-stock="{{.StockQuantity}}">
+          {{if .IsCombo}}
+          <span class="combo-badge">Combo · {{len .Components}} items</span>
+          {{end}}
           {{if .TrackInventory}}
             {{if le .StockQuantity 0}}
               <span class="stock-badge stock-empty">Sold Out</span>
@@ -269,7 +272,7 @@
         </svg>
       </div>
       <h2 class="confirm-title confirm-title-edit">Order Updated &amp; Saved! 💾</h2>
-      <p class="confirm-subtitle">Changes saved in place · Audit trail recorded as <strong>edited</strong></p>
+      <p class="confirm-subtitle">Changes saved in place · Audit trail recorded as <strong>order_saved</strong></p>
 
       <div class="confirm-details">
         <div class="confirm-order-no confirm-order-no-edit" id="edit-modal-order-no">Order #T1-0001</div>
@@ -462,11 +465,11 @@
                   <tbody>
                     {{if .Report.TopItems}}
                     {{range .Report.TopItems}}
-                    <tr>
-                      <td><strong>{{.Name}}</strong></td>
-                      <td>{{.QuantitySold}}</td>
-                      <td><strong class="naira" data-kobo="{{.TotalSalesKobo}}"></strong></td>
-                    </tr>
+                <tr>
+                  <td><strong>{{.ItemName}}</strong></td>
+                  <td>{{.Quantity}}</td>
+                  <td><strong class="naira" data-kobo="{{.TotalKobo}}"></strong></td>
+                </tr>
                     {{end}}
                     {{else}}
                     <tr><td colspan="3" class="muted small">No items sold yet today.</td></tr>

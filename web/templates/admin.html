@@ -210,7 +210,12 @@
                 <td style="width:50px;">
                   <img src="/static/images/{{.ID}}.png" alt="" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';" style="width:40px;height:40px;object-fit:cover;border-radius:8px;background:#fdfdfd;border:1px solid var(--line);">
                 </td>
-                <td><strong class="item-cell-name">{{.Name}}</strong></td>
+                <td>
+                  <strong class="item-cell-name">{{.Name}}</strong>
+                  {{if .IsCombo}}
+                  <span class="combo-badge" title="{{.ComponentsJSON}}">Combo</span>
+                  {{end}}
+                </td>
                 <td><span class="action-pill">{{.CategoryName}}</span></td>
                 <td>per {{.UnitLabel}} ({{.UnitType}})</td>
                 <td><strong class="naira" data-kobo="{{.PricePerUnitKobo}}"></strong></td>
@@ -241,7 +246,9 @@
                           data-unitlabel="{{.UnitLabel}}"
                           data-price="{{.PricePerUnitKobo}}"
                           data-track="{{if .TrackInventory}}true{{else}}false{{end}}"
-                          data-stock="{{.StockQuantity}}">Edit</button>
+                          data-stock="{{.StockQuantity}}"
+                          data-iscombo="{{if .IsCombo}}true{{else}}false{{end}}"
+                          data-components='{{.ComponentsJSON}}'>Edit</button>
                   <button class="btn-sm btn-toggle-item" data-id="{{.ID}}" data-active="{{if .Active}}true{{else}}false{{end}}">
                     {{if .Active}}Disable{{else}}Enable{{end}}
                   </button>
@@ -575,14 +582,41 @@
         <div class="form-grid" style="align-items:center;padding:12px;background:var(--bg);border-radius:12px;border:1px solid var(--line);margin-bottom:16px;">
           <div class="form-group" style="margin-bottom:0;">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;">
-              <input type="checkbox" id="item-track-inventory" checked style="width:18px;height:18px;accent-color:var(--jollof);">
-              <span>Track Inventory</span>
+              <input type="checkbox" id="item-is-combo" style="width:18px;height:18px;accent-color:var(--jollof);">
+              <span>Meal Combo</span>
             </label>
-            <span class="muted small" style="display:block;margin-top:2px;">Stock depletes automatically when sold.</span>
+            <span class="muted small" style="display:block;margin-top:2px;">Choosing this meal auto-adds its bundled items (at ₦0).</span>
           </div>
           <div class="form-group" id="item-stock-group" style="margin-bottom:0;">
             <label for="item-stock" style="font-weight:600;">Stock Quantity</label>
             <input type="number" id="item-stock" class="form-control" placeholder="50" min="0" value="50">
+          </div>
+        </div>
+        <div id="combo-section" style="padding:12px;background:var(--bg);border-radius:12px;border:1px solid var(--line);margin-bottom:16px;" hidden>
+          <label style="font-weight:700;display:block;margin-bottom:6px;">Combo Contents</label>
+          <span class="muted small" style="display:block;margin-bottom:10px;">Select each bundled item and its quantity per combo. The combo price above is what the customer pays.</span>
+          <div style="display:flex;gap:8px;align-items:flex-end;">
+            <div style="flex:1;">
+              <label class="muted small" for="combo-item-select">Item</label>
+              <select id="combo-item-select" class="form-control">
+                {{range .Items}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+              </select>
+            </div>
+            <div style="width:110px;">
+              <label class="muted small" for="combo-item-qty">Qty / combo</label>
+              <input type="number" id="combo-item-qty" class="form-control" min="1" value="1">
+            </div>
+            <button type="button" id="btn-add-combo-item" class="btn btn-sm btn-primary" style="height:40px;">Add</button>
+          </div>
+          <div id="combo-components-list" style="display:flex;flex-direction:column;gap:6px;margin-top:10px;"></div>
+        </div>
+        <div class="form-grid" style="align-items:center;padding:12px;background:var(--bg);border-radius:12px;border:1px solid var(--line);margin-bottom:16px;" id="stock-row">
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;">
+              <input type="checkbox" id="item-track-inventory" checked style="width:18px;height:18px;accent-color:var(--jollof);">
+              <span>Track Inventory</span>
+            </label>
+            <span class="muted small" style="display:block;margin-top:2px;">Stock depletes automatically when sold.</span>
           </div>
         </div>
         <div class="form-group">
@@ -829,6 +863,69 @@
     const dishImageInfo = document.getElementById('item-image-info');
     const btnResetDishImage = document.getElementById('btn-reset-item-image');
 
+    // ---- COMBO BUILDER ----
+    let comboItems = [];
+
+    function renderComboList() {
+      const list = document.getElementById('combo-components-list');
+      if (!list) return;
+      list.innerHTML = '';
+      if (comboItems.length === 0) {
+        list.innerHTML = '<p class="muted small" style="margin:0;">No items bundled yet.</p>';
+        return;
+      }
+      comboItems.forEach((c, idx) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:#fff;border:1px solid var(--line);border-radius:10px;';
+        row.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+            <img src="/static/images/${c.item_id}.png" onerror="this.onerror=null; this.src='/static/images/default_dish.svg';" style="width:30px;height:30px;object-fit:cover;border-radius:6px;">
+            <strong style="font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</strong>
+            <span class="muted small">× ${c.quantity}</span>
+          </div>
+          <button type="button" data-idx="${idx}" class="btn-sm btn-danger btn-rm-combo-item" style="height:28px;padding:2px 10px;">Remove</button>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    function setComboUI(isCombo) {
+      const section = document.getElementById('combo-section');
+      const stockRow = document.getElementById('stock-row');
+      const stockGroup = document.getElementById('item-stock-group');
+      if (section) section.hidden = !isCombo;
+      if (stockRow) stockRow.hidden = isCombo;
+      if (stockGroup) stockGroup.parentElement.style.opacity = isCombo ? '0.5' : '1';
+      if (isCombo) {
+        document.getElementById('item-track-inventory').checked = false;
+        document.getElementById('item-stock').value = '0';
+      }
+    }
+
+    document.getElementById('item-is-combo').addEventListener('change', (e) => {
+      setComboUI(e.target.checked);
+    });
+
+    document.getElementById('btn-add-combo-item').addEventListener('click', () => {
+      const sel = document.getElementById('combo-item-select');
+      const qty = parseInt(document.getElementById('combo-item-qty').value, 10);
+      if (!sel.value) { alert('Choose an item to bundle'); return; }
+      if (isNaN(qty) || qty < 1) { alert('Quantity must be at least 1'); return; }
+      if (comboItems.some((c) => c.item_id === sel.value)) {
+        alert('That item is already in the combo — remove it first to change its quantity');
+        return;
+      }
+      comboItems.push({ item_id: sel.value, name: sel.options[sel.selectedIndex].text, quantity: qty });
+      renderComboList();
+    });
+
+    document.getElementById('combo-components-list').addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-rm-combo-item');
+      if (!btn) return;
+      comboItems.splice(parseInt(btn.dataset.idx, 10), 1);
+      renderComboList();
+    });
+
     document.getElementById('btn-add-item').addEventListener('click', () => {
       document.getElementById('modal-item-title').textContent = 'Add Menu Dish';
       document.getElementById('item-id').value = '';
@@ -838,6 +935,10 @@
       document.getElementById('item-price').value = '';
       document.getElementById('item-track-inventory').checked = true;
       document.getElementById('item-stock').value = '50';
+      document.getElementById('item-is-combo').checked = false;
+      comboItems = [];
+      renderComboList();
+      setComboUI(false);
       pendingDishImage = null;
       dishImagePreview.src = '/static/images/default_dish.svg';
       dishImageInfo.textContent = 'Default dish SVG is used if no photo is added. Auto-compressed on upload.';
@@ -856,6 +957,17 @@
         document.getElementById('item-price').value = Number(d.price) / 100;
         document.getElementById('item-track-inventory').checked = d.track !== 'false';
         document.getElementById('item-stock').value = d.stock || '0';
+        const isCombo = d.iscombo === 'true';
+        document.getElementById('item-is-combo').checked = isCombo;
+        comboItems = [];
+        try {
+          const comps = JSON.parse(d.components || '[]');
+          if (Array.isArray(comps)) {
+            comboItems = comps.map((c) => ({ item_id: c.item_id, name: c.name, quantity: c.quantity }));
+          }
+        } catch (err) {}
+        renderComboList();
+        setComboUI(isCombo);
         pendingDishImage = null;
         dishImagePreview.src = '/static/images/' + d.id + '.png?v=' + Date.now();
         dishImageInfo.textContent = 'Click Choose Photo to replace. Auto-compressed on upload.';
@@ -891,14 +1003,21 @@
     document.getElementById('item-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('item-id').value;
+      const isCombo = document.getElementById('item-is-combo').checked;
+      if (isCombo && comboItems.length === 0) {
+        alert('A meal combo needs at least one bundled item');
+        return;
+      }
       const body = {
         name: document.getElementById('item-name').value.trim(),
         category_id: document.getElementById('item-category').value,
         unit_type: document.getElementById('item-unittype').value,
         unit_label: document.getElementById('item-unitlabel').value.trim(),
         price_kobo: Math.round(Number(document.getElementById('item-price').value) * 100),
-        track_inventory: document.getElementById('item-track-inventory').checked,
-        stock_quantity: parseInt(document.getElementById('item-stock').value, 10) || 0,
+        track_inventory: isCombo ? false : document.getElementById('item-track-inventory').checked,
+        stock_quantity: isCombo ? 0 : (parseInt(document.getElementById('item-stock').value, 10) || 0),
+        is_combo: isCombo,
+        components: isCombo ? comboItems.map((c) => ({ item_id: c.item_id, quantity: c.quantity })) : [],
       };
       const url = id ? `/api/admin/menu/items/${id}` : '/api/admin/menu/items';
       const method = id ? 'PUT' : 'POST';
